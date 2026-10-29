@@ -1,8 +1,8 @@
 # Mission Control — ROS 2 telemetry dashboard
 
-![Animated Mission Control dashboard showing trajectory, lidar, flight instruments, and estimation error](docs/assets/dashboard-preview.gif)
+![Animated Mission Control dashboard showing trajectory, lidar, flight instruments, and estimation error](docs/assets/dashboard-preview.svg)
 
-*Illustrative preview with simulated telemetry. [Animated SVG version](docs/assets/dashboard-preview.svg).*
+*Illustrative preview with simulated telemetry.*
 
 Connect through **Topics**, enter a rosbridge WebSocket URL, and select the topics to display. Panels appear automatically; drag their handles or resize their lower-right corners. Camera and lidar each display one source at a time, chosen from their panel's source selector. Binary (CBOR) sensor transport is the default; use the panel's JSON compatibility option for older bridges. This shared transport setting applies to both sensor panels.
 
