@@ -35,7 +35,7 @@ function positiveInteger(value, label) {
   return value;
 }
 
-export function decodeRawImage(msg) {
+export function decodeRawImage(msg, { maxWidth = 1280, maxHeight = 720 } = {}) {
   const width = positiveInteger(msg.width, 'image width');
   const height = positiveInteger(msg.height, 'image height');
   if (width * height > MAX_IMAGE_PIXELS) throw new Error('Image exceeds the 16 megapixel preview limit.');
@@ -48,7 +48,8 @@ export function decodeRawImage(msg) {
   if (step < width * pixelBytes) throw new Error('Image row stride is shorter than its pixels.');
   const data = bytes(msg.data);
   if (step * height > data.length) throw new Error('Truncated image payload.');
-  const scale = Math.min(1, 1280 / width, 720 / height);
+  const scale = Math.min(1, Math.min(1280, positiveInteger(maxWidth, 'output width')) / width,
+    Math.min(720, positiveInteger(maxHeight, 'output height')) / height);
   const outWidth = Math.max(1, Math.floor(width * scale));
   const outHeight = Math.max(1, Math.floor(height * scale));
   const rgba = new Uint8ClampedArray(outWidth * outHeight * 4);

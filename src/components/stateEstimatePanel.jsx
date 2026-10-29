@@ -5,8 +5,9 @@ import ThreeTrajectoryViewer from './threeTrajectoryViewer.jsx';
 import Panel from './panel.jsx';
 
 export default function StateEstimatePanel() {
-  const { selected, classify, getBuffer } = useTelemetry();
-  const [mode, setMode] = useState('3d');
+  const { selected, classify, getBuffer, performance: profile } = useTelemetry();
+  const [chosenMode, setMode] = useState(null);
+  const mode = chosenMode || (profile.mode === 'mobile' ? '2d' : '3d');
   const [fitToken, setFitToken] = useState(0);
   const [viewInfo, setViewInfo] = useState(null);
   const updateInfo = useCallback(info => setViewInfo(previous => !info ? null : previous?.step === info.step && previous?.plane === info.plane ? previous : info), []);

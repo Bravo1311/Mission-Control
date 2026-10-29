@@ -6,9 +6,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { encode } from 'cbor2';
+import { createLanServer } from '../scripts/serve-lan.mjs';
 
 const development = process.argv.includes('--dev') || !!process.env.DASHBOARD_DEV;
 const navigationOnly = process.argv.includes('--navigation-only') || !!process.env.DASHBOARD_NAV_ONLY;
+const lan = process.argv.includes('--lan');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const profile = await mkdtemp(join(tmpdir(), 'mission-sensors-'));
 const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -48,7 +50,9 @@ server.on('connection', socket => {
   });
   socket.on('close', () => { timers.forEach(clearInterval); sockets.delete(socket); });
 });
-const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...(development ? [] : ['preview']), '--host', '127.0.0.1', '--port', '4189', '--strictPort'], { stdio: 'ignore' });
+const vite = lan ? null : spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...(development ? [] : ['preview']), '--host', '127.0.0.1', '--port', '4189', '--strictPort'], { stdio: 'ignore' });
+const lanServer = lan ? createLanServer({ bridgeUrl: `ws://127.0.0.1:${server.address().port}` }) : null;
+if (lanServer) await new Promise((resolve, reject) => { lanServer.once('error', reject); lanServer.listen(4189, '127.0.0.1', resolve); });
 const chrome = spawn('google-chrome', ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--enable-webgl', '--enable-unsafe-swiftshader', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--window-size=1440,1200', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
 let socket;
 try {
@@ -74,6 +78,11 @@ try {
     return result.result.value;
   };
   const until = async (expression, timeout = 20000) => { const end = Date.now() + timeout; while (Date.now() < end) { if (errors.length) throw new Error(errors.join('\n')); if (await evaluate(`Boolean(${expression})`)) return; await delay(100); } throw new Error(`Timed out: ${expression}\n${await evaluate('document.body.innerText')}`); };
+  const untilBridge = async check => {
+    const end = Date.now() + 5000;
+    while (Date.now() < end) { if (check()) return; await delay(50); }
+    throw new Error(`Bridge subscription timeout: ${JSON.stringify([...subscriptions].map(([name, sub]) => [name, sub.throttle_rate]))}`);
+  };
   for (let i = 0; i < 50; i++) { try { if ((await fetch('http://127.0.0.1:4189')).ok) break; } catch {} await delay(100); }
   await cdp('Page.navigate', { url: 'http://127.0.0.1:4189' });
   await until(`document.querySelector('.header-actions .btn-primary')`);
@@ -106,7 +115,17 @@ try {
   fixtures['/camera/compressed'][1] = await evaluate(`(()=>{const c=document.createElement('canvas');c.width=320;c.height=180;const x=c.getContext('2d');x.fillStyle='#a9bdca';x.fillRect(0,0,320,90);x.fillStyle='#758185';x.fillRect(0,90,320,90);x.fillStyle='#c9ced0';for(let i=0;i<5;i++){x.beginPath();x.moveTo(30+i*60,120);x.lineTo(10+i*60,170);x.lineTo(90+i*60,170);x.lineTo(85+i*60,120);x.closePath();x.fill();}return {format:'png',header:{frame_id:'compressed_optical'},data:c.toDataURL('image/png').split(',')[1]}})()`);
   await evaluate(`document.querySelector('.header-actions .btn-primary').click()`);
   await until(`document.querySelector('[aria-label="Rosbridge WebSocket address"]')`);
-  await evaluate(`(()=>{const input=document.querySelector('[aria-label="Rosbridge WebSocket address"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'ws://127.0.0.1:${server.address().port}');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await evaluate(`(()=>{const s=document.querySelector('#performance-mode');s.value='mobile';s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(`localStorage.getItem('mission-control.performance.v1')==='mobile'`);
+  await evaluate(`window.__performanceBeforeReload=true`);
+  await cdp('Page.reload');
+  await until(`!window.__performanceBeforeReload && document.querySelector('.header-actions .btn-primary')`);
+  await evaluate(`document.querySelector('.header-actions .btn-primary').click()`);
+  await until(`document.querySelector('#performance-mode')?.value==='mobile'`);
+  await evaluate(`(()=>{const s=document.querySelector('#performance-mode');s.value='auto';s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(`document.querySelector('.performance-description').textContent.includes('1280')`);
+  if (lan) assert.equal(await evaluate(`document.querySelector('[aria-label="Rosbridge WebSocket address"]').value`), 'ws://127.0.0.1:4189/rosbridge/preview');
+  else await evaluate(`(()=>{const input=document.querySelector('[aria-label="Rosbridge WebSocket address"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'ws://127.0.0.1:${server.address().port}');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Connect').click()`);
   await until(`document.querySelectorAll('.topic-row').length===8`);
   let stats = {};
@@ -155,6 +174,17 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await delay(500);
   assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true, 'Mobile layout must not overflow horizontally');
+  await evaluate(`(()=>{const s=document.querySelector('[aria-label="camera source"]');s.value='/camera/raw';s.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('.sensor-panel').scrollIntoView({block:'start'});})()`);
+  await until(`document.querySelector('.sensor-canvas')?.width===640 && document.querySelector('.sensor-canvas')?.height===360`);
+  await untilBridge(() => lan ? subscriptions.get('/camera/raw')?.throttle_rate === 100 : subscriptions.get('/camera/raw')?.throttle_rate >= 1300);
+  await evaluate(`document.querySelectorAll('.sensor-panel')[1].scrollIntoView({block:'start'})`);
+  await until(`document.querySelectorAll('.sensor-canvas')[1]?.width===480`);
+  await untilBridge(() => !subscriptions.has('/camera/raw'));
+  assert.equal(subscriptions.has('/camera/raw'), false, 'Off-screen camera should stop transport in Mobile mode');
+  assert.ok(await evaluate(`parseInt(document.querySelectorAll('.sensor-format')[1].textContent.replaceAll(',',''))<=3000`));
+  await evaluate(`(()=>{const s=document.querySelector('[aria-label="camera source"]');s.value='/camera/compressed';s.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('.sensor-panel').scrollIntoView({block:'start'});})()`);
+  await until(`document.querySelector('.sensor-canvas')?.width===320`);
+  await untilBridge(() => subscriptions.get('/camera/compressed')?.throttle_rate === 100);
   const mobile = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile('/tmp/mission-workspace-mobile.png', Buffer.from(mobile.data, 'base64'));
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1200, deviceScaleFactor: 1, mobile: false });
@@ -165,6 +195,16 @@ try {
   await until(`document.body.innerText.includes('Truncated point cloud')`);
   fixtures['/cloud'][1] = cloud;
   await until(`!document.querySelector('.sensor-message') && document.body.innerText.includes('200,000 input points')`);
+  await evaluate(`document.querySelector('.night-toggle').click()`);
+  await until(`document.documentElement.dataset.night==='on'`);
+  await delay(250);
+  assert.equal(subscriptions.get('/camera/compressed').throttle_rate, 1000, 'Night mode should reduce camera transport');
+  assert.equal(subscriptions.get('/cloud').throttle_rate, 1000, 'Night mode should reduce lidar transport');
+  const nightFrames = await evaluate('window.__workers.cameraFrames');
+  await delay(300);
+  assert.equal(await evaluate('window.__workers.cameraFrames'), nightFrames, 'Night mode should suspend camera decoding');
+  await evaluate(`document.querySelector('.night-toggle').click()`);
+  await until(`document.documentElement.dataset.night!=='on'`);
   await evaluate(`[...document.querySelectorAll('.panel button')].find(b=>b.textContent==='Pause').click()`);
   await until(`document.body.innerText.includes('Display paused')`);
   assert.equal(await evaluate('window.__workers.alive'), 1);
@@ -244,10 +284,11 @@ try {
   await evaluate(`document.querySelector('input[aria-label="Toggle /drone_1/fusion/odom"]').click()`);
   await until(`!document.querySelector('.trajectory-panel') && document.querySelector('.app-header')`);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: 'PASS', scenarios: ['terminal local history and reload', 'terminal plain-text messages', 'terminal mobile layout', 'terminal keyboard focus', ...(navigationOnly ? [] : ['raw camera', 'compressed PNG/JPEG', 'malformed-frame recovery', '20-second heap/FPS check', 'LaserScan', '200k PointCloud2', 'source switching', 'pause/resume', 'clear', 'unsubscribe cleanup']), 'flight instruments', 'distinct comparison defaults', 'reference swap', 'navigation mobile layout', '2D/3D switching', 'idle GPU drawing stops', 'odometry unmount/remount'], development, stats, screenshot: '/tmp/mission-sensor-preview.png' }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', scenarios: ['persistent performance preference', 'terminal local history and reload', 'terminal plain-text messages', 'terminal mobile layout', 'terminal keyboard focus', ...(navigationOnly ? [] : ['automatic mobile budgets', 'off-screen sensor throttling', 'Night mode throttling and suspended decoding', 'raw camera', 'compressed PNG/JPEG', 'malformed-frame recovery', '20-second heap/FPS check', 'LaserScan', '200k PointCloud2', 'source switching', 'pause/resume', 'clear', 'unsubscribe cleanup']), 'flight instruments', 'distinct comparison defaults', 'reference swap', 'navigation mobile layout', '2D/3D switching', 'idle GPU drawing stops', 'odometry unmount/remount'], development, lan, stats, screenshot: '/tmp/mission-sensor-preview.png' }, null, 2));
 } finally {
   clearInterval(navigationTimer);
-  socket?.close(); chrome.kill('SIGTERM'); vite.kill('SIGTERM');
+  socket?.close(); chrome.kill('SIGTERM'); vite?.kill('SIGTERM');
+  await lanServer?.shutdown();
   for (const client of sockets) client.terminate();
   server.close();
   await delay(500);

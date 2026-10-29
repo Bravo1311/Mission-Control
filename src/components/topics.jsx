@@ -22,7 +22,7 @@ const Topics = () => {
     const [isOpen, setIsOpen] = useState(false)
     const tele = useTelemetry(isOpen ? 500 : 0)
     const [night, toggleNight] = useNightMode()
-    const [url, setUrl] = useState('ws://localhost:2019');
+    const [url, setUrl] = useState(tele.bridgeUrl);
     const toggle = () => setIsOpen(!isOpen)
     const [query, setQuery] = useState('')
 
@@ -91,6 +91,17 @@ const Topics = () => {
                                 </span>
                             </Col>
                         </Row>
+                        <label className="performance-setting" htmlFor="performance-mode">
+                            Performance
+                            <select id="performance-mode" className="panel-select" value={tele.performancePreference} onChange={event => tele.setPerformancePreference(event.target.value)}>
+                                <option value="auto">Auto ({tele.performance.mode})</option>
+                                <option value="mobile">Mobile · reduced load</option>
+                                <option value="desktop">Desktop · full preview</option>
+                            </select>
+                        </label>
+                        <p className="performance-description">{tele.performance.mode === 'mobile'
+                            ? '640 × 360 camera · up to 10 FPS · 3,000 lidar points · 60 s history. A shared 2 MiB/s sensor budget slows large frames. Hidden sensor sources stop streaming.'
+                            : '1280 × 720 camera · 20 FPS · 12,000 lidar points · 120 s history.'}</p>
                         <div className="d-flex gap-2 mb-2">
                             <Input
                                 value={url}

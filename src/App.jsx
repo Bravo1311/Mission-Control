@@ -73,9 +73,9 @@ const MissionOverview = () => {
   )
 }
 
-const App = () => {
+const App = ({ bridgeUrl }) => {
   return (
-    <TelemetryProvider>
+    <TelemetryProvider bridgeUrl={bridgeUrl}>
       <div className="app-shell">
         <Topics />
         <main className="app-main">

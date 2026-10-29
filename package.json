@@ -8,12 +8,15 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "serve:lan": "npm run build && node scripts/serve-lan.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "node tests/browser-sensors.mjs",
+    "test:browser:lan": "node tests/browser-sensors.mjs --lan",
     "test:browser:dev": "node tests/browser-sensors.mjs --dev --navigation-only"
   },
   "dependencies": {
     "bootstrap": "^5.3.8",
+    "cbor2": "^2.3.0",
     "leaflet": "^1.9.4",
     "plotly.js-dist-min": "^4.0.0",
     "react": "^19.2.8",
@@ -22,7 +25,9 @@
     "react-plotly.js": "^4.1.0",
     "reactstrap": "^9.2.3",
     "roslib": "^2.1.0",
-    "three": "^0.185.1"
+    "sharp": "^0.35.5",
+    "three": "^0.185.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -3,18 +3,20 @@ import { useTelemetry } from '../context/telemetryContext.jsx';
 import { createLatestFramePump } from '../lib/latestFrame.js';
 import Panel from './panel.jsx';
 
-function SensorCanvas({ kind, topic, getBuffer, paused, range, status }) {
+function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, registerPreview, requestedInterval }) {
   const canvasRef = useRef(null);
   const hostRef = useRef(null);
   const [info, setInfo] = useState({ note: 'Waiting for a frame', error: '' });
   const [metrics, setMetrics] = useState(null);
   const [frameName, setFrameName] = useState('');
+  const intervalRef = useRef(requestedInterval);
+  useEffect(() => { intervalRef.current = requestedInterval; }, [requestedInterval]);
 
   useEffect(() => {
     if (paused) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    let visible = true;
+    let visible = false;
     let stopped = false;
     let watchdog;
     let animation;
@@ -22,6 +24,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status }) {
     let reportTime = performance.now();
     let rendered = 0;
     let baseNote = '';
+    const period = kind === 'camera' ? profile.cameraMs : /PointCloud2/.test(topic.type) ? profile.cloudMs : profile.scanMs;
     let lastDecode = 0;
     const report = next => setInfo(previous =>
       previous.note === next.note && previous.error === next.error ? previous : next);
@@ -38,6 +41,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status }) {
       stopped = true;
       clearTimeout(watchdog);
       worker.terminate();
+      syncActivity();
       clear();
       report({ note: '', error });
     };
@@ -52,7 +56,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status }) {
       }
       lastDispatch = performance.now();
       watchdog = setTimeout(() => fail('Frame decoding timed out. Pause and resume to retry, or use a smaller sensor stream.'), 5000);
-      try { worker.postMessage({ kind, msg, range }); }
+      try { worker.postMessage({ kind, msg, range, mode: profile.mode }); }
       catch (error) { fail(error.message); }
     });
     worker.onmessage = ({ data }) => {
@@ -76,8 +80,18 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status }) {
       } finally { data.bitmap?.close(); }
     };
     worker.onerror = () => fail('Sensor worker failed. Pause and resume to retry.');
-    const observer = new IntersectionObserver(entries => { visible = entries[0].isIntersecting; });
+    let unregister;
+    const syncActivity = () => {
+      const active = visible && !document.hidden && document.documentElement.dataset.night !== 'on' && !stopped;
+      if (active && !unregister) unregister = registerPreview(topic.name);
+      else if (!active && unregister) { unregister(); unregister = null; }
+    };
+    const observer = new IntersectionObserver(entries => { visible = entries[0].isIntersecting; syncActivity(); });
     observer.observe(hostRef.current);
+    document.addEventListener('visibilitychange', syncActivity);
+    const nightObserver = new MutationObserver(syncActivity);
+    nightObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-night'] });
+    syncActivity();
     let empty = false;
     const update = () => {
       if (stopped || document.hidden || !visible || document.documentElement.dataset.night === 'on') return;
@@ -87,33 +101,37 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status }) {
       }
       empty = false;
       const now = performance.now();
-      if (now - reportTime >= 1000) {
+      if (now - reportTime >= Math.max(1000, intervalRef.current)) {
         const reception = read().reception;
-        const stalled = reception && now - reception.last > 1500;
+        const stalled = reception && now - reception.last > Math.max(1500, intervalRef.current * 2.5);
+        const displayFps = rendered * 1000 / (now - reportTime);
         setMetrics({
-          display: (rendered * 1000 / (now - reportTime)).toFixed(0),
+          display: displayFps.toFixed(displayFps < 1 ? 1 : 0),
           decode: Math.round(lastDecode),
           incoming: stalled ? 'Stalled' : reception ? reception.fps.toFixed(1) : '—',
           bandwidth: reception && !stalled ? reception.mib.toFixed(1) : '0.0',
         });
         rendered = 0; reportTime = now;
       }
-      if (kind !== 'camera' || performance.now() - lastDispatch >= 40) pump.pull();
+      if (performance.now() - lastDispatch >= period - 5) pump.pull();
     };
     // Align camera presentation with browser paint, independently of lidar.
     const animate = () => {
       update();
       animation = requestAnimationFrame(animate);
     };
-    const id = kind === 'camera' ? null : setInterval(update, 200);
+    const id = kind === 'camera' ? null : setInterval(update, period);
     if (kind === 'camera') animation = requestAnimationFrame(animate);
     return () => {
       stopped = true;
       clearInterval(id); clearTimeout(watchdog);
       cancelAnimationFrame(animation);
       observer.disconnect(); worker.terminate();
+      nightObserver.disconnect();
+      document.removeEventListener('visibilitychange', syncActivity);
+      unregister?.();
     };
-  }, [kind, topic.name, getBuffer, paused, range]);
+  }, [kind, topic.name, topic.type, getBuffer, paused, range, profile, registerPreview]);
 
   return (
     <div ref={hostRef} className="sensor-display">
@@ -137,17 +155,12 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status }) {
 }
 
 export default function SensorPanel({ kind }) {
-  const { selected, classify, getBuffer, status, sensorTransport, setSensorTransport, registerPreview } = useTelemetry();
+  const { selected, classify, getBuffer, status, sensorTransport, setSensorTransport, registerPreview, requestedSensorInterval, hostCameraPreview, performance: profile } = useTelemetry();
   const topics = selected.filter(t => classify(t.name) === kind);
   const [chosen, setChosen] = useState('');
   const [paused, setPaused] = useState(false);
   const [range, setRange] = useState(30);
   const topic = topics.find(t => t.name === chosen) || topics[0];
-  const topicName = topic?.name;
-  useEffect(() => {
-    if (!topicName || paused) return;
-    return registerPreview(topicName);
-  }, [topicName, paused, registerPreview]);
   if (!topic) return null;
   const icon = kind === 'camera' ? (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="m8 6 2-3h4l2 3"/><circle cx="12" cy="13" r="4"/></svg>
@@ -184,7 +197,8 @@ export default function SensorPanel({ kind }) {
             </select>
           </label>}
         </div>
-        <SensorCanvas key={topic.name} kind={kind} topic={topic} getBuffer={getBuffer} paused={paused} range={range} status={status} />
+        {profile.mode === 'mobile' && <p className="sensor-bandwidth-note">{kind === 'camera' && hostCameraPreview ? 'Mobile preview · images resized on host before transfer.' : 'Mobile link budget · large frames update more slowly.'}</p>}
+        <SensorCanvas key={topic.name} kind={kind} topic={topic} getBuffer={getBuffer} paused={paused} range={range} status={status} profile={profile} registerPreview={registerPreview} requestedInterval={requestedSensorInterval(topic.name, topic.type)} />
       </div>
     </Panel>
   );

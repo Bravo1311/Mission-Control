@@ -36,7 +36,7 @@ const headingDeg = (msg) => {
 };
 
 const GpsPanel = () => {
-  const { selected, classify, getBuffer } = useTelemetry(100);
+  const { selected, classify, getBuffer, performance: profile } = useTelemetry(100);
 
   // This component decides for itself which topics belong on the map —
   // it isn't told by a parent. Same classify() every other panel uses,
@@ -140,7 +140,7 @@ const GpsPanel = () => {
       const { trail, marker } = layer;
       marker.setLatLng([lastLL.lat, lastLL.lon]);
       trail.setLatLngs(
-        sampleIndices(buf.raw.length).map((k) => latLon(buf.raw[k])).filter(Boolean).map((ll) => [ll.lat, ll.lon])
+        sampleIndices(buf.raw.length, profile.trajectoryPoints).map((k) => latLon(buf.raw[k])).filter(Boolean).map((ll) => [ll.lat, ll.lon])
       );
 
       // Rotate just the inner wrapper, never the marker's own DOM node —

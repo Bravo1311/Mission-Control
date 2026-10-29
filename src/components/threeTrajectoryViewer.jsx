@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { sampleIndices } from '../lib/telemetryUpdates.js';
 import { PALETTE, pos } from '../lib/plotHelpers.js';
 import { finitePosition, trajectoryFit, boundsWithOrigin } from '../lib/trajectoryView.js';
+import { useTelemetry } from '../context/telemetryContext.jsx';
 
 const CAPACITY = 600;
 const dispose = object => object.traverse(item => {
@@ -46,6 +47,7 @@ function referenceGrid(fit) {
 // Both projections share one renderer and resource budget. No lights, shaded
 // meshes, per-message React state, or perpetual animation loop are required.
 export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', fitToken = 0, onViewInfo }) {
+  const { performance: profile } = useTelemetry();
   const mountRef = useRef(null);
   const guideRef = useRef(null);
   const emptyRef = useRef(null);
@@ -66,13 +68,13 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
     empty.hidden = false;
     origin.hidden = true;
     let renderer;
-    try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false }); }
+    try { renderer = new THREE.WebGLRenderer({ antialias: profile.mode !== 'mobile', alpha: false }); }
     catch {
       empty.hidden = false;
       empty.textContent = 'WebGL is unavailable. Enable browser hardware acceleration to view trajectories.';
       return;
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, profile.pixelRatio));
     renderer.setSize(Math.max(1, el.clientWidth), Math.max(1, el.clientHeight));
     renderer.domElement.setAttribute('aria-label', mode === '3d' ? 'Orthographic 3D position tracks' : 'Top-down XY position tracks');
     el.appendChild(renderer.domElement);
@@ -202,7 +204,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
         if (entry?.buffer === buffer && entry.version === buffer.version && entry.colorIndex === colorIndex) return;
         const bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
         let count = 0;
-        for (const i of sampleIndices(buffer.raw.length, CAPACITY)) {
+        for (const i of sampleIndices(buffer.raw.length, profile.trajectoryPoints)) {
           const point = pos(buffer.raw[i]);
           if (!finitePosition(point)) continue;
           const values = [point.x, point.y, point.z ?? 0];
@@ -263,7 +265,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
     intersection.observe(el);
     const wake = () => { if (!document.hidden) { update(); invalidate(); } };
     document.addEventListener('visibilitychange', wake);
-    const timer = setInterval(update, 50);
+    const timer = setInterval(update, profile.instrumentMs);
     update(); invalidate();
     return () => {
       disposed = true; apiRef.current = null;
@@ -274,7 +276,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
       controls.removeEventListener('change', invalidate); controls.dispose();
       dispose(scene); texture.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove();
     };
-  }, [mode]);
+  }, [mode, profile]);
 
   useEffect(() => { apiRef.current?.fit(); }, [fitToken]);
 
