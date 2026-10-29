@@ -1,0 +1,313 @@
+/* ---------- App header ---------- */
+.app-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-right: auto;
+}
+
+.brand-mark {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+}
+
+.brand-title {
+    font-family: var(--heading);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+}
+
+.brand-subtitle {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.text-dim {
+    color: var(--text-dim);
+}
+
+/* ---------- Status pill ---------- */
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-success { color: var(--success); border-color: var(--success-bg); background: var(--success-bg); }
+.status-success .status-dot { background: var(--success); }
+
+.status-warning { color: var(--warning); border-color: var(--warning-bg); background: var(--warning-bg); }
+.status-warning .status-dot { background: var(--warning); animation: pulse 1.4s ease-in-out infinite; }
+
+.status-danger { color: var(--danger); border-color: var(--danger-bg); background: var(--danger-bg); }
+.status-danger .status-dot { background: var(--danger); }
+
+/* The one animation worth keeping — "connecting" is a real in-progress
+   state, not decoration, so it gets the one purposeful blink in the app. */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+}
+
+/* ---------- Buttons ---------- */
+.btn-primary {
+    background: var(--accent-bg) !important;
+    border: 1px solid var(--accent-border) !important;
+    color: var(--accent-strong) !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--heading);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.btn-primary:hover, .btn-primary:focus {
+    background: var(--accent-border) !important;
+    color: var(--text) !important;
+}
+
+.btn-ghost {
+    background: transparent !important;
+    border: 1px solid var(--border-strong) !important;
+    color: var(--text-dim) !important;
+    font-family: var(--heading);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    transition: border-color .12s ease, color .12s ease, background-color .12s ease;
+}
+.btn-ghost:hover, .btn-ghost:focus {
+    border-color: var(--text-dim) !important;
+    color: var(--text) !important;
+    background: var(--panel-2) !important;
+}
+
+.count-badge {
+    background: var(--accent);
+    color: #000000;
+    border-radius: var(--radius-sm);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 6px;
+    min-width: 18px;
+    text-align: center;
+}
+
+/* ---------- Offcanvas sidebar (dark override of Bootstrap defaults) ---------- */
+.mc-offcanvas {
+    width: 380px !important;
+    background: var(--bg-raised) !important;
+    color: var(--text) !important;
+    border-right: 1px solid var(--border) !important;
+}
+
+.mc-offcanvas .offcanvas-header {
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+}
+
+.mc-offcanvas .offcanvas-title,
+.mc-offcanvas h5 {
+    color: var(--text);
+    font-family: var(--heading);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.mc-offcanvas .btn-close {
+    filter: invert(1) grayscale(1) brightness(1.6);
+}
+
+.mc-offcanvas .offcanvas-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 16px;
+}
+
+.mc-input,
+.mc-input.form-control {
+    background: var(--panel) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+}
+.mc-input::placeholder {
+    color: var(--text-faint);
+}
+.mc-input:focus {
+    background: var(--panel) !important;
+    border-color: var(--accent-border) !important;
+    color: var(--text) !important;
+    box-shadow: 0 0 0 2px var(--accent-bg) !important;
+}
+
+.listGroup {
+    flex: 1;
+    max-height: calc(100dvh - 16rem);
+    overflow-y: auto;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+    border-top: 1px solid var(--border);
+}
+
+.emptyState {
+    padding: 24px 8px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.topic-bulk-actions {
+    align-items: center;
+}
+.topic-bulk-actions button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 12px;
+    padding: 0;
+    cursor: pointer;
+}
+.topic-bulk-actions button:hover {
+    color: var(--accent-strong);
+    text-decoration: underline;
+}
+.topic-bulk-count {
+    color: var(--text-faint);
+    font-size: 11px;
+    margin-left: auto;
+}
+
+/* ---------- Topic rows ---------- */
+.topic-row {
+    position: relative;
+    background: transparent !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+    padding: 10px 6px 10px 10px !important;
+    transition: background-color .12s ease, border-color .12s ease;
+}
+.topic-row::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity .12s ease;
+}
+.topic-row:hover {
+    background: var(--panel) !important;
+}
+.topic-row-active {
+    background: var(--accent-bg) !important;
+    border-color: var(--accent-border) !important;
+}
+.topic-row-active::before {
+    opacity: 1;
+}
+
+.topic-row input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.topic-row .input-group-text {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
+
+.topic-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.topic-type {
+    font-size: 11px;
+    color: var(--text-faint);
+    overflow-wrap: anywhere;
+}
+
+.topic-count {
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-top: 2px;
+}
+
+.panel-type-badge {
+    display: inline-block;
+    font-family: var(--heading);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    border: 1px solid var(--border-strong);
+    color: var(--text-dim);
+    background: var(--panel);
+}
+
+.panel-type-trajectory { color: var(--accent-strong); border-color: var(--accent-border); background: var(--accent-bg); }
+.panel-type-geo { color: #3ddc84; border-color: rgba(61, 220, 132, .35); background: var(--success-bg); }
+.panel-type-imu { color: #c9a6ff; border-color: rgba(168, 85, 247, .35); background: rgba(168, 85, 247, .12); }
+.panel-type-camera { color: #ff8a00; border-color: rgba(255, 138, 0, .35); background: var(--warning-bg); }
+.panel-type-diagnostics { color: #ff6b5b; border-color: rgba(255, 92, 92, .35); background: var(--danger-bg); }

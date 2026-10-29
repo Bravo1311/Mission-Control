@@ -1,0 +1,100 @@
+/* ---------- Night panel ----------
+   Modeled on the Saab night-panel idea (itself borrowed from aircraft):
+   switch off everything except what you actually fly by, keep it in a
+   dark-adapted red so your eyes aren't ruined, and let anything that needs
+   attention relight itself.
+
+   All driven by <html data-night="on"> (see lib/useNightMode.js). Panels
+   opt in through two attributes set by <Panel>:
+     data-keep-lit   always visible (the flight instruments)
+     data-alert      relit because something is wrong ('danger')           */
+
+.panel-body,
+.panel-fill,
+.panel-header,
+.panel,
+.app-header .brand,
+.app-header .btn,
+.status-pill {
+  transition: opacity .5s ease, filter .5s ease, border-color .5s ease, background-color .5s ease;
+}
+
+:root[data-night='on'] {
+  --bg: #000;
+  --bg-raised: #030202;
+  --panel: #050303;
+  --panel-2: #020101;
+  --border: #1d100c;
+  --border-strong: #2e1913;
+
+  --text: #c4553a;
+  --text-dim: #7d3a2b;
+  --text-faint: #4a2219;
+
+  --accent: #d9573a;
+  --accent-strong: #ef7656;
+  --accent-bg: rgba(217, 87, 58, 0.1);
+  --accent-border: rgba(217, 87, 58, 0.35);
+
+  --success: #4c8a5a;
+  --success-bg: rgba(76, 138, 90, 0.12);
+  --warning: #d08a1e;
+  --warning-bg: rgba(208, 138, 30, 0.14);
+  --danger: #ff4b3a;
+  --danger-bg: rgba(255, 75, 58, 0.14);
+}
+
+:root[data-night='on'] body {
+  background-image: none;
+}
+
+/* ---- header: dark until something is wrong ---- */
+:root[data-night='on'] .app-header {
+  background: #000;
+  border-bottom-color: #0f0807;
+}
+:root[data-night='on'] .app-header .brand { opacity: .35; }
+:root[data-night='on'] .app-header .btn { opacity: .4; }
+:root[data-night='on'] .app-header .btn:hover,
+:root[data-night='on'] .app-header .btn:focus { opacity: 1; }
+:root[data-night='on'] .app-header .night-toggle.is-on { opacity: .9; }
+/* a healthy connection goes quiet; a dropped or pending one stays lit, like a warning lamp */
+:root[data-night='on'] .status-pill.status-success { opacity: .2; }
+
+/* ---- panels ---- */
+:root[data-night='on'] .panel {
+  background: #000;
+}
+
+/* off: not an instrument, and not alarming */
+:root[data-night='on'] .panel:not([data-keep-lit]):not([data-alert]) {
+  border-color: #0c0706;
+}
+:root[data-night='on'] .panel:not([data-keep-lit]):not([data-alert]) .panel-body {
+  opacity: 0;
+  pointer-events: none;
+}
+:root[data-night='on'] .panel:not([data-keep-lit]):not([data-alert]) .panel-header {
+  opacity: .25;
+}
+
+/* always lit: the flight instruments, collapsed to dark-adapted red */
+:root[data-night='on'] .panel[data-keep-lit] .panel-fill {
+  filter: grayscale(1) brightness(.55) sepia(1) hue-rotate(-50deg) saturate(4);
+}
+
+/* relit by an alert: keeps its own colours (a red/amber/green warning has to
+   stay distinguishable) but toned down so it doesn't blind you */
+:root[data-night='on'] .panel[data-alert] .panel-body {
+  filter: brightness(.7) saturate(.75);
+}
+:root[data-night='on'] .panel[data-alert='danger'] {
+  border-color: var(--danger);
+}
+
+/* Plotly bakes its background colour in as a literal, so it can't follow the
+   night palette; tint the chart itself so it reads as part of the red panel
+   instead of a blue-grey block. */
+:root[data-night='on'] .panel[data-alert] .js-plotly-plot {
+  filter: grayscale(1) sepia(1) hue-rotate(-50deg) saturate(3) brightness(.6);
+}

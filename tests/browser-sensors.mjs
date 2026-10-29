@@ -1,0 +1,255 @@
+// Optional real-browser smoke test: requires google-chrome on PATH.
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { WebSocketServer, WebSocket } from 'ws';
+import { encode } from 'cbor2';
+
+const development = process.argv.includes('--dev') || !!process.env.DASHBOARD_DEV;
+const navigationOnly = process.argv.includes('--navigation-only') || !!process.env.DASHBOARD_NAV_ONLY;
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const profile = await mkdtemp(join(tmpdir(), 'mission-sensors-'));
+const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+await new Promise(resolve => server.once('listening', resolve));
+const raw = { header: { frame_id: 'camera_optical' }, width: 1280, height: 720, step: 3840, encoding: 'rgb8', data: Buffer.alloc(1280 * 720 * 3, 120).toString('base64') };
+const scan = { header: { frame_id: 'laser' }, ranges: Array.from({ length: 3600 }, (_, i) => 10 + 3 * Math.sin(i / 100)), angle_min: -Math.PI, angle_increment: Math.PI * 2 / 3600, range_min: 0.1, range_max: 60 };
+const cloudData = Buffer.alloc(200000 * 12);
+for (let i = 0; i < 200000; i++) { cloudData.writeFloatLE(15 * Math.cos(i / 100), i * 12); cloudData.writeFloatLE(15 * Math.sin(i / 100), i * 12 + 4); cloudData.writeFloatLE(i % 10, i * 12 + 8); }
+const cloud = { header: { frame_id: 'lidar' }, width: 200000, height: 1, point_step: 12, row_step: cloudData.length, fields: ['x', 'y', 'z'].map((name, i) => ({ name, datatype: 7, count: 1, offset: i * 4 })), data: cloudData.toString('base64') };
+const fixtures = {
+  '/camera/raw': ['sensor_msgs/msg/Image', raw],
+  '/camera/compressed': ['sensor_msgs/msg/CompressedImage', null],
+  '/scan': ['sensor_msgs/msg/LaserScan', scan],
+  '/cloud': ['sensor_msgs/msg/PointCloud2', cloud],
+  '/imu': ['sensor_msgs/msg/Imu', { linear_acceleration: { x: 0, y: 0, z: 9.81 }, angular_velocity: { x: 0.1, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } }],
+  '/battery': ['std_msgs/msg/Float32', { data: 24.8 }],
+};
+const odom = (x, y, speed, yaw) => ({ header: { frame_id: 'map' }, pose: { pose: { position: { x, y, z: 2 }, orientation: { x: 0.026, y: -0.012, z: Math.sin(yaw / 2), w: Math.cos(yaw / 2) } } }, twist: { twist: { linear: { x: speed, y: 0.1, z: 0.12 } } } });
+fixtures['/drone_1/odometry'] = ['nav_msgs/msg/Odometry', odom(10, 10, 2.4, 1.3)];
+fixtures['/drone_1/fusion/odom'] = ['nav_msgs/msg/Odometry', odom(10.25, 10.15, 2.48, 1.31)];
+let navigationTimer;
+const subscriptions = new Map();
+const sockets = new Set();
+let streaming = true;
+server.on('connection', socket => {
+  sockets.add(socket); const timers = new Map();
+  socket.on('message', data => {
+    const message = JSON.parse(data);
+    if (message.op === 'call_service') socket.send(JSON.stringify({ op: 'service_response', service: message.service, id: message.id, result: true, values: { topics: Object.keys(fixtures), types: Object.values(fixtures).map(f => f[0]) } }));
+    if (message.op === 'subscribe') {
+      subscriptions.set(message.topic, message);
+      const publish = () => { if (streaming && fixtures[message.topic]?.[1] && socket.readyState === 1) socket.send(message.compression === 'cbor' ? encode({ op: 'publish', topic: message.topic, msg: { ...fixtures[message.topic][1], ...(typeof fixtures[message.topic][1].data === 'string' ? { data: new Uint8Array(Buffer.from(fixtures[message.topic][1].data, 'base64')) } : {}) } }) : JSON.stringify({ op: 'publish', topic: message.topic, msg: fixtures[message.topic][1] })); };
+      clearInterval(timers.get(message.topic));
+      timers.set(message.topic, setInterval(publish, Math.max(message.throttle_rate || 0, 50))); publish();
+    }
+    if (message.op === 'unsubscribe') { clearInterval(timers.get(message.topic)); timers.delete(message.topic); subscriptions.delete(message.topic); }
+  });
+  socket.on('close', () => { timers.forEach(clearInterval); sockets.delete(socket); });
+});
+const vite = spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...(development ? [] : ['preview']), '--host', '127.0.0.1', '--port', '4189', '--strictPort'], { stdio: 'ignore' });
+const chrome = spawn('google-chrome', ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--enable-webgl', '--enable-unsafe-swiftshader', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--window-size=1440,1200', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+let socket;
+try {
+  const endpoint = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Chrome startup timeout')), 15000);
+    chrome.stderr.on('data', chunk => { const match = chunk.toString().match(/DevTools listening on (ws:\/\/[^\s]+)/); if (match) { clearTimeout(timeout); resolve(match[1]); } });
+    chrome.on('error', reject);
+  });
+  socket = new WebSocket(endpoint);
+  await new Promise(resolve => socket.once('open', resolve));
+  let seq = 0; const pending = new Map(); const errors = [];
+  socket.on('message', raw => { const message = JSON.parse(raw); if (message.id) { const job = pending.get(message.id); pending.delete(message.id); if (message.error) job.reject(message.error); else job.resolve(message.result); } else if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text + ': ' + (message.params.exceptionDetails.exception?.description || '')); });
+  const call = (method, params = {}, sessionId) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params, sessionId })); });
+  const { targetId } = await call('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await call('Target.attachToTarget', { targetId, flatten: true });
+  const cdp = (method, params) => call(method, params, sessionId);
+  await cdp('Runtime.enable'); await cdp('Page.enable');
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `window.__drawCalls=0;for(const API of [window.WebGLRenderingContext,window.WebGL2RenderingContext]){if(!API)continue;for(const name of ['drawArrays','drawElements']){const original=API.prototype[name];if(!original)continue;API.prototype[name]=function(...args){window.__drawCalls++;return original.apply(this,args);};}}window.__workers={alive:0,peak:0,busy:0,maxBusy:0,cameraFrames:0}; const NativeWorker=Worker; window.Worker=class extends NativeWorker { constructor(...args){super(...args);this.counted=true;window.__workers.alive++;window.__workers.peak=Math.max(window.__workers.peak,window.__workers.alive);this.pending=0;this.addEventListener('message',event=>{if(this.kind==='camera' && event.data.bitmap)window.__workers.cameraFrames++;this.pending--;window.__workers.busy--;});} postMessage(...args){this.kind=args[0].kind;this.pending++;window.__workers.busy++;window.__workers.maxBusy=Math.max(window.__workers.maxBusy,window.__workers.busy);return super.postMessage(...args);} terminate(){if(this.counted){window.__workers.alive--;window.__workers.busy-=this.pending;this.counted=false;}super.terminate();}}; window.__longTasks=[];new PerformanceObserver(list=>window.__longTasks.push(...list.getEntries().map(e=>e.duration))).observe({type:'longtask',buffered:true});` });
+  const evaluate = async expression => {
+    const result = await cdp('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    return result.result.value;
+  };
+  const until = async (expression, timeout = 20000) => { const end = Date.now() + timeout; while (Date.now() < end) { if (errors.length) throw new Error(errors.join('\n')); if (await evaluate(`Boolean(${expression})`)) return; await delay(100); } throw new Error(`Timed out: ${expression}\n${await evaluate('document.body.innerText')}`); };
+  for (let i = 0; i < 50; i++) { try { if ((await fetch('http://127.0.0.1:4189')).ok) break; } catch {} await delay(100); }
+  await cdp('Page.navigate', { url: 'http://127.0.0.1:4189' });
+  await until(`document.querySelector('.header-actions .btn-primary')`);
+  // The terminal works without a backend and keeps notes across page reloads.
+  await evaluate(`document.querySelector('.chat-launcher').click()`);
+  await until(`document.activeElement?.id==='agent-message'`);
+  const localNote = '<img src=x onerror="window.__chatMarkupExecuted=true"> Local mission note';
+  await evaluate(`(()=>{const input=document.querySelector('#agent-message');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,${JSON.stringify(localNote)});input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await evaluate(`document.querySelector('.chat-composer').requestSubmit()`);
+  await until(`document.querySelectorAll('.chat-message').length===1`);
+  assert.equal(await evaluate(`document.querySelector('.chat-message p').textContent`), localNote);
+  assert.equal(await evaluate(`!!document.querySelector('.chat-message img') || !!window.__chatMarkupExecuted`), false);
+  assert.equal(await evaluate(`document.querySelector('.chat-message header').textContent.includes('Local only')`), true);
+  await evaluate(`window.__terminalBeforeReload=true`);
+  await cdp('Page.reload');
+  await until(`!window.__terminalBeforeReload && document.querySelector('.chat-launcher')`);
+  await evaluate(`document.querySelector('.chat-launcher').click()`);
+  await until(`document.querySelectorAll('.chat-message').length===1`);
+  assert.equal(await evaluate(`document.querySelector('.chat-message p').textContent`), localNote);
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await delay(200);
+  assert.equal(await evaluate(`(()=>{const r=document.querySelector('.agent-terminal').getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight})()`), true, 'Terminal should fit the mobile viewport');
+  const terminal = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-terminal-mobile.png', Buffer.from(terminal.data, 'base64'));
+  await evaluate(`document.querySelector('.chat-toolbar button').click()`);
+  await until(`document.querySelector('.chat-empty') && !document.querySelector('.chat-message')`);
+  await evaluate(`document.querySelector('#agent-message').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+  await until(`!document.querySelector('.agent-terminal') && document.activeElement===document.querySelector('.chat-launcher')`);
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1200, deviceScaleFactor: 1, mobile: false });
+  fixtures['/camera/compressed'][1] = await evaluate(`(()=>{const c=document.createElement('canvas');c.width=320;c.height=180;const x=c.getContext('2d');x.fillStyle='#a9bdca';x.fillRect(0,0,320,90);x.fillStyle='#758185';x.fillRect(0,90,320,90);x.fillStyle='#c9ced0';for(let i=0;i<5;i++){x.beginPath();x.moveTo(30+i*60,120);x.lineTo(10+i*60,170);x.lineTo(90+i*60,170);x.lineTo(85+i*60,120);x.closePath();x.fill();}return {format:'png',header:{frame_id:'compressed_optical'},data:c.toDataURL('image/png').split(',')[1]}})()`);
+  await evaluate(`document.querySelector('.header-actions .btn-primary').click()`);
+  await until(`document.querySelector('[aria-label="Rosbridge WebSocket address"]')`);
+  await evaluate(`(()=>{const input=document.querySelector('[aria-label="Rosbridge WebSocket address"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'ws://127.0.0.1:${server.address().port}');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Connect').click()`);
+  await until(`document.querySelectorAll('.topic-row').length===8`);
+  let stats = {};
+  if (!navigationOnly) {
+  await evaluate(`[...document.querySelectorAll('.topic-row input[type=checkbox]')].filter(input=>!input.getAttribute('aria-label').includes('/drone_1/')).forEach(input=>input.click())`);
+  await evaluate(`document.querySelector('.offcanvas .btn-close').click()`);
+  await until(`document.querySelectorAll('.sensor-canvas').length===2`);
+  await evaluate(`(()=>{const s=document.querySelector('[aria-label="camera source"]');s.value='/camera/raw';s.dispatchEvent(new Event('change',{bubbles:true}));const l=document.querySelector('[aria-label="lidar source"]');l.value='/scan';l.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(`document.body.innerText.includes('1280 × 720') && document.body.innerText.includes('3,600 input points')`);
+  const rawBefore = await evaluate('window.__workers.cameraFrames');
+  await delay(3000);
+  const rawFps = (await evaluate('window.__workers.cameraFrames') - rawBefore) / 3;
+  assert.ok(rawFps >= 12, `720p raw camera throughput too low: ${rawFps} FPS`);
+  assert.equal(subscriptions.get('/camera/raw').throttle_rate, 50);
+  assert.equal(subscriptions.get('/cloud').throttle_rate, 1000);
+  assert.equal(subscriptions.get('/camera/raw').compression, 'cbor');
+  for (const sub of subscriptions.values()) assert.equal(sub.queue_length, 1);
+  await evaluate(`(()=>{const s=document.querySelector('[aria-label="camera source"]');s.value='/camera/compressed';s.dispatchEvent(new Event('change',{bubbles:true}));const l=document.querySelector('[aria-label="lidar source"]');l.value='/cloud';l.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(`document.body.innerText.includes('320 × 180') && document.body.innerText.includes('200,000 input points')`);
+  assert.equal(await evaluate(`performance.getEntriesByType('resource').some(r=>r.name.includes('plotlyView'))`), false);
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.mission-heading h1')).color`), 'rgb(233, 237, 241)');
+  await cdp('HeapProfiler.collectGarbage');
+  const heapBefore = (await cdp('Runtime.getHeapUsage')).usedSize;
+  const framesBefore = await evaluate('window.__workers.cameraFrames');
+  assert.equal(subscriptions.get('/cloud').throttle_rate, 500);
+  assert.equal(subscriptions.get('/camera/raw').throttle_rate, 1000);
+  await evaluate('window.__longTasks=[]');
+  await delay(20000);
+  stats = await evaluate('({workers:window.__workers,longTasks:window.__longTasks})');
+  await cdp('HeapProfiler.collectGarbage');
+  stats.rawCameraFps = rawFps;
+  stats.heapBefore = heapBefore;
+  stats.heapAfter = (await cdp('Runtime.getHeapUsage')).usedSize;
+  stats.cameraFps = (stats.workers.cameraFrames - framesBefore) / 20;
+  assert.ok(stats.cameraFps >= 12, `Camera throughput too low: ${stats.cameraFps} FPS`);
+  assert.ok(stats.heapAfter < heapBefore + 16 * 1024 * 1024, 'Main-thread retained heap should remain bounded');
+  assert.ok(stats.workers.alive <= 2); assert.ok(stats.workers.maxBusy <= 2);
+  const shot = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-sensor-preview.png', Buffer.from(shot.data, 'base64'));
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1900, height: 940, deviceScaleFactor: 1, mobile: false });
+  await delay(500);
+  assert.equal(await evaluate(`[...document.querySelectorAll('.sensor-panel')].every(p=>p.getBoundingClientRect().bottom <= window.innerHeight)`), true, 'Sensor panels should fit desktop viewport');
+  assert.equal(await evaluate(`localStorage.getItem('mission-control.grid-layout.v3')`), null, 'Automatic compaction must not save a custom layout');
+  const desktop = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-workspace-desktop.png', Buffer.from(desktop.data, 'base64'));
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await delay(500);
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true, 'Mobile layout must not overflow horizontally');
+  const mobile = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-workspace-mobile.png', Buffer.from(mobile.data, 'base64'));
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await delay(500);
+  fixtures['/camera/compressed'][1] = await evaluate(`(()=>{const c=document.createElement('canvas');c.width=320;c.height=240;const ctx=c.getContext('2d');ctx.fillStyle='#ff4d0a';ctx.fillRect(0,0,320,240);return {format:'jpeg',data:c.toDataURL('image/jpeg').split(',')[1]}})()`);
+  await until(`document.body.innerText.includes('320 × 240 · jpeg')`);
+  fixtures['/cloud'][1] = {...cloud, data: ''};
+  await until(`document.body.innerText.includes('Truncated point cloud')`);
+  fixtures['/cloud'][1] = cloud;
+  await until(`!document.querySelector('.sensor-message') && document.body.innerText.includes('200,000 input points')`);
+  await evaluate(`[...document.querySelectorAll('.panel button')].find(b=>b.textContent==='Pause').click()`);
+  await until(`document.body.innerText.includes('Display paused')`);
+  assert.equal(await evaluate('window.__workers.alive'), 1);
+  await evaluate(`[...document.querySelectorAll('.panel button')].find(b=>b.textContent==='Resume').click()`);
+  await until(`window.__workers.alive===2`);
+  streaming = false; await delay(500);
+  await evaluate(`[...document.querySelectorAll('.header-actions button')].find(b=>b.textContent.trim()==='Clear').click()`);
+  await until(`[...document.querySelectorAll('.sensor-caption')].every(c=>c.textContent.includes('Waiting for a frame'))`);
+  await evaluate(`document.querySelector('.header-actions .btn-primary').click()`);
+  await until(`document.querySelectorAll('.topic-row input:checked').length===6`);
+  await evaluate(`[...document.querySelectorAll('.topic-row input:checked')].forEach(input=>input.click())`);
+  await until(`window.__workers.alive===0 && document.querySelectorAll('.sensor-canvas').length===0`);
+  assert.equal(subscriptions.size, 0);
+  }
+  streaming = true;
+  const navigationStart = Date.now();
+  navigationTimer = setInterval(() => {
+    const t = (Date.now() - navigationStart) / 1200;
+    const reference = fixtures['/drone_1/odometry'][1].pose.pose.position;
+    Object.assign(reference, { x: 10 + 8 * Math.cos(t), y: 10 + 5 * Math.sin(t), z: 2 + 0.5 * Math.sin(t * 2) });
+    const estimate = fixtures['/drone_1/fusion/odom'][1].pose.pose.position;
+    Object.assign(estimate, { x: reference.x + 0.25 + 0.08 * Math.sin(t * 2), y: reference.y + 0.15, z: reference.z + 0.12 });
+  }, 50);
+  await evaluate(`document.querySelector('input[aria-label="Toggle /drone_1/fusion/odom"]').click()`);
+  await until(`document.querySelectorAll('.flight-source-card').length===1`);
+  await evaluate(`document.querySelector('input[aria-label="Toggle /drone_1/odometry"]').click()`);
+  await evaluate(`document.querySelector('.offcanvas .btn-close').click()`);
+  await until(`document.querySelectorAll('.flight-source-card').length===2 && document.querySelector('.estimation-panel .js-plotly-plot')`);
+  await delay(1800);
+  await evaluate(`document.querySelector('.trajectory-panel').scrollIntoView({block:'start'});[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='Fit tracks').click()`);
+  await delay(300);
+  assert.equal(await evaluate(`!document.querySelector('.trajectory-origin').hidden`), true, '3D origin must be visible after fitting');
+  const viewer3d = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-trajectory-3d.png', Buffer.from(viewer3d.data, 'base64'));
+  await evaluate(`[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='2D').click()`);
+  await until(`document.querySelector('.trajectory-projection')?.textContent==='Top-down XY' && document.querySelector('[aria-label="Top-down XY position tracks"]')`);
+  await delay(300);
+  assert.equal(await evaluate(`!document.querySelector('.trajectory-origin').hidden`), true, '2D origin must be visible after fitting');
+  const viewer2d = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-trajectory-2d.png', Buffer.from(viewer2d.data, 'base64'));
+  assert.equal(await evaluate(`document.querySelectorAll('.trajectory-canvas canvas').length`), 1);
+  streaming = false;
+  await delay(500);
+  const idleBefore = await evaluate('window.__drawCalls');
+  await delay(500);
+  assert.equal(await evaluate('window.__drawCalls'), idleBefore, 'Idle trajectory viewer must stop GPU drawing');
+  streaming = true;
+  await evaluate(`[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='3D').click()`);
+  await until(`document.querySelector('[aria-label="Orthographic 3D position tracks"]')`);
+  const chosenRoles = await evaluate(`({reference:document.querySelector('[aria-label="Reference topic"]').value,estimate:document.querySelector('[aria-label="Estimate topic"]').value})`);
+  assert.equal(chosenRoles.reference, '/drone_1/odometry');
+  assert.equal(chosenRoles.estimate, '/drone_1/fusion/odom');
+  await evaluate(`document.querySelector('[aria-label="Swap reference and estimate"]').click()`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Reference topic"]').value`), chosenRoles.estimate);
+  await evaluate(`document.querySelector('[aria-label="Swap reference and estimate"]').click()`);
+  assert.equal(await evaluate(`document.querySelector('.flight-state-panel').innerHTML.includes('#ffd060')`), false);
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1900, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await evaluate(`document.querySelector('.flight-state-panel').scrollIntoView({block:'start'})`);
+  await delay(700);
+  const navigation = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-flight-state-desktop.png', Buffer.from(navigation.data, 'base64'));
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await delay(500);
+  await evaluate(`document.querySelector('.flight-state-panel').scrollIntoView({block:'start'})`);
+  await delay(200);
+  assert.equal(await evaluate(`(()=>{const el=document.querySelector('.flight-state-panel .panel-fill');return el.scrollHeight <= el.clientHeight + 2})()`), true, 'Stacked flight cards should fit their panel');
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
+  const narrowNavigation = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-flight-state-mobile.png', Buffer.from(narrowNavigation.data, 'base64'));
+  // Exercise actual unmount/remount as well as the development-only mount cycle.
+  await evaluate(`document.querySelector('.header-actions .btn-primary').click()`);
+  await until(`document.querySelectorAll('.topic-row input:checked').length===2`);
+  await evaluate(`[...document.querySelectorAll('.topic-row input:checked')].forEach(input=>input.click())`);
+  await until(`!document.querySelector('.trajectory-panel') && document.querySelector('.app-header')`);
+  await evaluate(`document.querySelector('input[aria-label="Toggle /drone_1/fusion/odom"]').click()`);
+  await until(`document.querySelectorAll('.flight-source-card').length===1 && document.querySelector('.trajectory-panel')`);
+  await evaluate(`document.querySelector('input[aria-label="Toggle /drone_1/fusion/odom"]').click()`);
+  await until(`!document.querySelector('.trajectory-panel') && document.querySelector('.app-header')`);
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ result: 'PASS', scenarios: ['terminal local history and reload', 'terminal plain-text messages', 'terminal mobile layout', 'terminal keyboard focus', ...(navigationOnly ? [] : ['raw camera', 'compressed PNG/JPEG', 'malformed-frame recovery', '20-second heap/FPS check', 'LaserScan', '200k PointCloud2', 'source switching', 'pause/resume', 'clear', 'unsubscribe cleanup']), 'flight instruments', 'distinct comparison defaults', 'reference swap', 'navigation mobile layout', '2D/3D switching', 'idle GPU drawing stops', 'odometry unmount/remount'], development, stats, screenshot: '/tmp/mission-sensor-preview.png' }, null, 2));
+} finally {
+  clearInterval(navigationTimer);
+  socket?.close(); chrome.kill('SIGTERM'); vite.kill('SIGTERM');
+  for (const client of sockets) client.terminate();
+  server.close();
+  await delay(500);
+  await rm(profile, { recursive: true, force: true });
+}

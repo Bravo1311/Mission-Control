@@ -1,0 +1,375 @@
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  background: var(--bg);
+}
+
+.app-main {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Resizable/draggable panel grid (react-grid-layout) ---------- */
+.dashboard-grid-wrap {
+  position: relative;
+}
+
+.grid-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.grid-cell {
+  height: 100%;
+}
+
+.react-grid-item.react-draggable-dragging {
+  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.7) !important;
+  cursor: grabbing;
+}
+.react-grid-item.resizing .panel {
+  border-color: var(--accent-border);
+}
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent) !important;
+  opacity: .1 !important;
+  border-radius: var(--radius);
+}
+
+.react-grid-item > .react-resizable-handle {
+  width: 18px;
+  height: 18px;
+}
+.react-grid-item > .react-resizable-handle::after {
+  right: 5px;
+  bottom: 5px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--text-faint);
+  border-bottom: 2px solid var(--text-faint);
+}
+.react-grid-item:hover > .react-resizable-handle::after {
+  border-color: var(--text-dim);
+}
+
+/* ---------- Panel: title bar + body ---------- */
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 38px;
+  flex-shrink: 0;
+  padding: 0 8px 0 14px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+.panel-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.panel-controls .chip-btn,
+.panel-controls .panel-select {
+  height: 24px;
+  padding: 0 10px;
+}
+.panel-drag-handle {
+  cursor: grab;
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 24px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  user-select: none;
+}
+.panel-drag-handle:hover {
+  color: var(--text-dim);
+  background: var(--panel-2);
+}
+.panel-drag-handle:active {
+  cursor: grabbing;
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.panel-fill {
+  position: absolute;
+  inset: 0;
+}
+.panel-fill-padded {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+/* ---------- Small form controls in panel headers ---------- */
+.panel-select {
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+  max-width: 190px;
+}
+.panel-select:hover {
+  border-color: var(--text-dim);
+  color: var(--text);
+}
+.panel-select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+/* ---------- Segmented control (panel headers) ---------- */
+.segmented {
+  display: inline-flex;
+  height: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.segmented button {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 0 11px;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+.segmented button + button { border-left: 1px solid var(--border-strong); }
+.segmented button:hover { color: var(--text); background: var(--panel-2); }
+.segmented button.active { background: var(--accent-bg); color: var(--accent-strong); }
+
+/* ---------- Stat tiles (error panel) ---------- */
+.stat-tile-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.stat-tile {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+.stat-tile-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.stat-tile-value {
+  font-size: 15px;
+  font-weight: 600;
+}
+.stat-tile-value.stat-dim { color: var(--text-dim); }
+.stat-tile-value.stat-success { color: var(--success); }
+.stat-tile-value.stat-warning { color: var(--warning); }
+.stat-tile-value.stat-danger { color: var(--danger); }
+
+/* ---------- Instrument cluster ---------- */
+.vehicle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+  gap: 22px 32px;
+  align-content: start;
+}
+.vehicle {
+  min-width: 0;
+}
+.vehicle-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.vehicle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.gauge-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 14px;
+}
+.gauge {
+  min-width: 0;
+  text-align: center;
+}
+.gauge-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.gauge-readout {
+  font-size: 11.5px;
+  color: var(--text);
+  margin-top: 8px;
+}
+
+/* ---------- Empty state ---------- */
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.empty-state-card {
+  max-width: 460px;
+  text-align: center;
+  padding: 32px 28px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.empty-state-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+}
+.empty-state-icon span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.empty-state-card h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.empty-state-card p {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.empty-state-steps {
+  margin-top: 18px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty-state-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.empty-state-step-index {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+
+.empty-state-step.done .empty-state-step-index {
+  background: var(--success-bg);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+/* GPS map markers — Leaflet's default .leaflet-div-icon adds a white box
+   + border meant for icon-less placeholder pins; our divIcon ships its own
+   marker, so that chrome just needs switching off. */
+.drone-marker-icon {
+  background: transparent !important;
+  border: none !important;
+}
+.drone-marker-rotor {
+  width: 100%;
+  height: 100%;
+  transition: transform .25s ease-out;
+}
+
+@media (max-width: 900px) {
+  .app-main {
+    padding: 12px;
+  }
+}
+
+/* ---------- Map: dark and amber to match the theme ----------
+   OpenStreetMap tiles are a light, multi-colour raster, so they're inverted
+   to dark and tinted amber with a filter (the tile layer only; markers,
+   trails and controls above it keep their real colours). */
+.leaflet-container { background: #000; }
+.leaflet-tile-pane {
+  filter: grayscale(1) invert(1) brightness(.7) contrast(1.15) sepia(1) saturate(2.4) hue-rotate(-12deg);
+}
+.leaflet-container .leaflet-bar a,
+.leaflet-container .leaflet-bar a:hover {
+  background-color: var(--bg-raised);
+  color: var(--accent);
+  border-bottom-color: var(--border);
+}
+.leaflet-container .leaflet-bar a.leaflet-disabled { background-color: var(--panel-2); color: var(--text-faint); }
+.leaflet-container .leaflet-bar { border: 1px solid var(--border-strong); box-shadow: none; }
+.leaflet-control-attribution { background: rgba(0, 0, 0, .75) !important; color: var(--text-faint) !important; }
+.leaflet-control-attribution a { color: var(--text-dim) !important; }
