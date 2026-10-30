@@ -2,9 +2,11 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { sampleIndices } from '../lib/telemetryUpdates.js';
-import { PALETTE, pos } from '../lib/plotHelpers.js';
+import { pos } from '../lib/plotHelpers.js';
+import { TOPIC_DASHES } from '../lib/topicStyles.js';
 import { finitePosition, trajectoryFit, boundsWithOrigin } from '../lib/trajectoryView.js';
 import { useTelemetry } from '../context/telemetryContext.jsx';
+import { createVehicleLabels } from '../lib/vehicleLabels.js';
 
 const CAPACITY = 600;
 const dispose = object => object.traverse(item => {
@@ -53,6 +55,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
   const emptyRef = useRef(null);
   const cursorRef = useRef(null);
   const originRef = useRef(null);
+  const labelsRef = useRef(null);
   const apiRef = useRef(null);
   const inputRef = useRef({ topics, getBuffer, onViewInfo });
   useEffect(() => { inputRef.current = { topics, getBuffer, onViewInfo }; }, [topics, getBuffer, onViewInfo]);
@@ -93,6 +96,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
       controls.touches.ONE = THREE.TOUCH.PAN;
     }
     const texture = positionTexture();
+    const labels = createVehicleLabels(labelsRef.current);
     const entries = new Map();
     const positions = new Float32Array(CAPACITY * 3);
     let grid;
@@ -107,6 +111,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
     const inverse = new THREE.Quaternion();
     const direction = new THREE.Vector3();
     const originProjection = new THREE.Vector3();
+    const labelProjection = new THREE.Vector3();
     const projection = () => {
       const aspect = Math.max(1, el.clientWidth) / Math.max(1, el.clientHeight);
       camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect;
@@ -117,7 +122,23 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
       frame = null;
       if (disposed || !visible || document.hidden || document.documentElement.dataset.night === 'on') return;
       const moved = controls.update();
+      const unitsPerPixel = (camera.top - camera.bottom) / camera.zoom / Math.max(1, el.clientHeight);
+      for (const entry of entries.values()) {
+        const dash = TOPIC_DASHES[entry.pattern];
+        if (dash) {
+          entry.line.material.dashSize = dash[0] * unitsPerPixel;
+          entry.line.material.gapSize = dash[1] * unitsPerPixel;
+        }
+      }
       renderer.render(scene, camera);
+      const anchors = [];
+      for (const entry of entries.values()) {
+        labelProjection.fromBufferAttribute(entry.marker.geometry.attributes.position, 0).project(camera);
+        anchors.push({ name: entry.name, style: entry.style,
+          x: (labelProjection.x + 1) * el.clientWidth / 2, y: (1 - labelProjection.y) * el.clientHeight / 2,
+          visible: Math.abs(labelProjection.x) <= 1 && Math.abs(labelProjection.y) <= 1 && Math.abs(labelProjection.z) <= 1 });
+      }
+      labels.update(anchors, el.clientWidth, el.clientHeight);
       originProjection.set(0, 0, 0).project(camera);
       const originVisible = fitted && Math.abs(originProjection.x) <= 1 && Math.abs(originProjection.y) <= 1 && Math.abs(originProjection.z) <= 1;
       origin.hidden = !originVisible;
@@ -198,10 +219,10 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
       for (const [name, entry] of entries) if (!currentNames.has(name)) {
         scene.remove(entry.line, entry.marker); dispose(entry.line); dispose(entry.marker); entries.delete(name); changed = true;
       }
-      topics.forEach((topic, colorIndex) => {
+      topics.forEach(topic => {
         const buffer = getBuffer(topic.name);
         let entry = entries.get(topic.name);
-        if (entry?.buffer === buffer && entry.version === buffer.version && entry.colorIndex === colorIndex) return;
+        if (entry?.buffer === buffer && entry.version === buffer.version) return;
         const bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
         let count = 0;
         for (const i of sampleIndices(buffer.raw.length, profile.trajectoryPoints)) {
@@ -219,27 +240,40 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
           if (entry) { scene.remove(entry.line, entry.marker); dispose(entry.line); dispose(entry.marker); entries.delete(topic.name); changed = true; }
           return;
         }
-        const color = PALETTE[colorIndex % PALETTE.length];
+        const { color, pattern } = topic.style;
         if (!entry) {
           const geometry = new THREE.BufferGeometry();
           geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CAPACITY * 3), 3).setUsage(THREE.DynamicDrawUsage));
-          const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color }));
+          if (pattern !== 'solid') geometry.setAttribute('lineDistance', new THREE.BufferAttribute(new Float32Array(CAPACITY), 1).setUsage(THREE.DynamicDrawUsage));
+          const Material = pattern === 'solid' ? THREE.LineBasicMaterial : THREE.LineDashedMaterial;
+          const line = new THREE.Line(geometry, new Material({ color }));
           line.frustumCulled = false;
           const markerGeometry = new THREE.BufferGeometry();
           markerGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3).setUsage(THREE.DynamicDrawUsage));
           const marker = new THREE.Points(markerGeometry, new THREE.PointsMaterial({ color, map: texture, size: 11, sizeAttenuation: false, transparent: true, depthTest: false, depthWrite: false }));
           marker.frustumCulled = false;
           marker.renderOrder = 2;
-          entry = { line, marker }; entries.set(topic.name, entry); scene.add(line, marker);
+          entry = { line, marker, pattern, name: topic.name, style: topic.style }; entries.set(topic.name, entry); scene.add(line, marker);
         }
         const attribute = entry.line.geometry.attributes.position;
         attribute.array.set(positions.subarray(0, count * 3));
         attribute.clearUpdateRanges(); attribute.addUpdateRange(0, count * 3); attribute.needsUpdate = true;
         entry.line.geometry.setDrawRange(0, count);
+        if (pattern !== 'solid') {
+          // Reuse the bounded GPU buffer rather than allocate a new attribute
+          // on every telemetry tick (Line.computeLineDistances does the latter).
+          const distances = entry.line.geometry.attributes.lineDistance;
+          distances.array[0] = 0;
+          for (let i = 1; i < count; i++) {
+            const offset = i * 3;
+            distances.array[i] = distances.array[i - 1] + Math.hypot(positions[offset] - positions[offset - 3], positions[offset + 1] - positions[offset - 2], positions[offset + 2] - positions[offset - 1]);
+          }
+          distances.clearUpdateRanges(); distances.addUpdateRange(0, count); distances.needsUpdate = true;
+        }
         entry.line.material.color.set(color); entry.marker.material.color.set(color);
         entry.marker.geometry.attributes.position.array.set(positions.subarray((count - 1) * 3, count * 3));
         entry.marker.geometry.attributes.position.needsUpdate = true;
-        Object.assign(entry, { bounds, buffer, version: buffer.version, colorIndex });
+        Object.assign(entry, { bounds, buffer, version: buffer.version });
         changed = true;
       });
       empty.hidden = entries.size > 0;
@@ -274,6 +308,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
       renderer.domElement.removeEventListener('pointermove', locateCursor);
       renderer.domElement.removeEventListener('pointerleave', hideCursor); hideCursor();
       controls.removeEventListener('change', invalidate); controls.dispose();
+      labels.clear();
       dispose(scene); texture.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove();
     };
   }, [mode, profile]);
@@ -282,6 +317,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
 
   return <div className="trajectory-stage">
     <div ref={mountRef} className="trajectory-canvas" />
+    <div ref={labelsRef} className="vehicle-label-layer" aria-label="Drone position labels" />
     <div ref={emptyRef} className="trajectory-empty">Waiting for position data</div>
     <div ref={cursorRef} className="trajectory-coordinates" hidden />
     <div ref={originRef} className="trajectory-origin" aria-label="Coordinate origin (0, 0, 0)" hidden>

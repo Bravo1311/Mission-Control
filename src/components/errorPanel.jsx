@@ -1,6 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useTelemetry } from '../context/telemetryContext.jsx';
-import { pos, orientation, velocityEnu, plotLayout, PALETTE } from '../lib/plotHelpers.js';
+import { pos, orientation, velocityEnu, plotLayout } from '../lib/plotHelpers.js';
+import { topicStyle, TOPIC_PLOT_DASHES } from '../lib/topicStyles.js';
+import TopicSwatch from './topicSwatch.jsx';
+import VehicleTag from './vehicleTag.jsx';
 import ResponsivePlot from './responsivePlot.jsx';
 import { chooseComparison } from '../lib/comparisonRoles.js';
 import Panel from './panel.jsx';
@@ -42,18 +45,15 @@ const vecDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 
 
 const METRICS = {
   pos: {
-    label: 'Position', unit: 'm', yTitle: 'position error (m)', color: '#ff4d0a',
-    fill: 'rgba(255, 77, 10, 0.08)', thresholds: [0.5, 2],
+    label: 'Position', unit: 'm', yTitle: 'position error (m)', thresholds: [0.5, 2],
     get: pos, blend: lerpVec, error: vecDist,
   },
   ori: {
-    label: 'Orientation', unit: '°', yTitle: 'orientation error (°)', color: '#ececec',
-    fill: 'rgba(236, 236, 236, 0.06)', thresholds: [2, 5],
+    label: 'Orientation', unit: '°', yTitle: 'orientation error (°)', thresholds: [2, 5],
     get: orientation, blend: nlerp, error: angleBetween,
   },
   vel: {
-    label: 'Velocity', unit: 'm/s', yTitle: 'velocity error (m/s)', color: '#b084f5',
-    fill: 'rgba(176, 132, 245, 0.08)', thresholds: [0.2, 1],
+    label: 'Velocity', unit: 'm/s', yTitle: 'velocity error (m/s)', thresholds: [0.2, 1],
     get: velocityEnu, blend: lerpVec, error: vecDist,
   },
 };
@@ -171,11 +171,12 @@ const ErrorPanel = () => {
   const mean = err.length ? err.reduce((a, b) => a + b, 0) / err.length : null;
   const rmse = err.length ? Math.sqrt(err.reduce((a, b) => a + b * b, 0) / err.length) : null;
   const max = err.length ? Math.max(...err) : null;
+  const truthStyle = topicStyle(truthName), estimateStyle = topicStyle(estimateName);
 
   const trace = [{
     x: t, y: err, mode: 'lines',
-    line: { color: metric.color, width: 2 },
-    fill: 'tozeroy', fillcolor: metric.fill,
+    line: { color: estimateStyle.color, width: 2, dash: TOPIC_PLOT_DASHES[estimateStyle.pattern] },
+    fill: 'tozeroy', fillcolor: estimateStyle.fill,
   }];
   const layout = plotLayout({
     uirevision: `${truthName}:${estimateName}:${metricKey}`,
@@ -208,13 +209,13 @@ const ErrorPanel = () => {
       }
     >
       <div className="error-comparison">
-        <label style={{ '--comparison-color': PALETTE[names.indexOf(truthName) % PALETTE.length] }}>Reference
+        <label style={{ '--comparison-color': truthStyle.color }}><span className="comparison-role"><TopicSwatch name={truthName} />Reference <VehicleTag name={truthName} /></span>
           <select className="panel-select" aria-label="Reference topic" value={truthName} onChange={e => setTruthName(e.target.value)}>
             {names.map(n => <option key={n} value={n} disabled={n === estimateName}>{n}</option>)}
           </select>
         </label>
         <button className="chip-btn comparison-swap" title="Swap reference and estimate" aria-label="Swap reference and estimate" onClick={() => { setTruthName(estimateName); setEstimateName(truthName); }}>⇄</button>
-        <label style={{ '--comparison-color': PALETTE[names.indexOf(estimateName) % PALETTE.length] }}>Estimate
+        <label style={{ '--comparison-color': estimateStyle.color }}><span className="comparison-role"><TopicSwatch name={estimateName} />Estimate <VehicleTag name={estimateName} /></span>
           <select className="panel-select" aria-label="Estimate topic" value={estimateName} onChange={e => setEstimateName(e.target.value)}>
             {names.map(n => <option key={n} value={n} disabled={n === truthName}>{n}</option>)}
           </select>
@@ -227,7 +228,8 @@ const ErrorPanel = () => {
         <StatTile label="Peak error" value={max} metric={metric} />
       </div>
 
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className="error-plot-stage" style={{ flex: 1, minHeight: 0 }}>
+        <div className="error-plot-identity"><VehicleTag name={estimateName} /><span>{estimateStyle.sourceLabel} error</span></div>
         {err.length === 0 ? (
           <div className="emptyState">
             {metricKey === 'pos'
@@ -238,7 +240,7 @@ const ErrorPanel = () => {
           <ResponsivePlot data={trace} layout={layout} />
         )}
       </div>
-      <div className="error-chart-caption"><span>{err.length.toLocaleString()} paired samples</span><span>Display bands: &lt;{metric.thresholds[0]} {metric.unit} / &lt;{metric.thresholds[1]} {metric.unit}</span></div>
+      <div className="error-chart-caption"><span>{err.length.toLocaleString()} paired samples · Line follows estimate color</span><span>Display bands: &lt;{metric.thresholds[0]} {metric.unit} / &lt;{metric.thresholds[1]} {metric.unit}</span></div>
     </Panel>
   );
 };

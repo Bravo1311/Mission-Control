@@ -31,6 +31,8 @@ const fixtures = {
 const odom = (x, y, speed, yaw) => ({ header: { frame_id: 'map' }, pose: { pose: { position: { x, y, z: 2 }, orientation: { x: 0.026, y: -0.012, z: Math.sin(yaw / 2), w: Math.cos(yaw / 2) } } }, twist: { twist: { linear: { x: speed, y: 0.1, z: 0.12 } } } });
 fixtures['/drone_1/odometry'] = ['nav_msgs/msg/Odometry', odom(10, 10, 2.4, 1.3)];
 fixtures['/drone_1/fusion/odom'] = ['nav_msgs/msg/Odometry', odom(10.25, 10.15, 2.48, 1.31)];
+const groupedTracks = ['/drone_1/imu/odom', '/drone_1/gps/odom', '/drone_2/imu/odom', '/drone_2/gps/odom', '/drone_2/fusion/odom'];
+for (const [i, name] of groupedTracks.entries()) fixtures[name] = ['nav_msgs/msg/Odometry', odom(10 + i, 10 + i, 2.4, 1.3)];
 let navigationTimer;
 const subscriptions = new Map();
 const sockets = new Set();
@@ -83,9 +85,60 @@ try {
     while (Date.now() < end) { if (check()) return; await delay(50); }
     throw new Error(`Bridge subscription timeout: ${JSON.stringify([...subscriptions].map(([name, sub]) => [name, sub.throttle_rate]))}`);
   };
+  const assertTopicColors = async () => {
+    const mismatches = await evaluate(`(()=>{
+      const failures=[], ctx=document.createElement('canvas').getContext('2d');
+      const normalize=color=>{ctx.fillStyle=color;return ctx.fillStyle;};
+      const color=node=>normalize(getComputedStyle(node).color);
+      for(const item of document.querySelectorAll('.trajectory-legend-item')){
+        const name=item.dataset.topic, expected=color(item.querySelector('svg'));
+        const card=[...document.querySelectorAll('.flight-source-card')].find(node=>node.dataset.topic===name);
+        const trail=[...document.querySelectorAll('.topic-map-trail')].find(node=>node.dataset.topic===name);
+        const marker=[...document.querySelectorAll('.drone-marker-icon')].find(node=>node.dataset.topic===name);
+        const row=[...document.querySelectorAll('.topic-row')].find(node=>node.dataset.topic===name);
+        if(!card||color(card.querySelector('.topic-swatch'))!==expected)failures.push(name+' flight');
+        if(!trail||normalize(getComputedStyle(trail).stroke)!==expected)failures.push(name+' map trail');
+        if(trail&&getComputedStyle(trail).strokeDasharray!==getComputedStyle(item.querySelector('line')).strokeDasharray)failures.push(name+' map pattern');
+        if(!marker||normalize(getComputedStyle(marker.querySelector('circle')).stroke)!==expected)failures.push(name+' map marker');
+        if(row&&color(row.querySelector('.topic-swatch'))!==expected)failures.push(name+' topic list');
+      }
+      for(const label of document.querySelectorAll('.error-comparison label')){
+        const name=label.querySelector('select').value;
+        const item=[...document.querySelectorAll('.trajectory-legend-item')].find(node=>node.dataset.topic===name);
+        if(!item||normalize(getComputedStyle(label).borderLeftColor)!==color(item.querySelector('svg')))failures.push(name+' comparison');
+      }
+      const plot=document.querySelector('.estimation-panel .js-plotly-plot');
+      const estimate=document.querySelector('[aria-label="Estimate topic"]')?.value;
+      const item=[...document.querySelectorAll('.trajectory-legend-item')].find(node=>node.dataset.topic===estimate);
+      if(plot&&item&&normalize(plot.data[0].line.color)!==color(item.querySelector('svg')))failures.push('estimate chart');
+      return failures;
+    })()`);
+    assert.deepEqual(mismatches, [], 'Topic identity must match across panels');
+  };
+  const assertVehicleLabels = async expected => {
+    await until(`document.querySelectorAll('.trajectory-stage .vehicle-floating-tag').length===${expected} && document.querySelectorAll('.map-stage .vehicle-floating-tag').length===${expected}`);
+    const labels = await evaluate(`(()=>{
+      const result=[];
+      for(const stage of document.querySelectorAll('.trajectory-stage,.map-stage')){
+        const bounds=stage.getBoundingClientRect(), tags=[...stage.querySelectorAll('.vehicle-floating-tag')];
+        const boxes=tags.map(tag=>tag.getBoundingClientRect());
+        result.push({inside:boxes.every(box=>box.left>=bounds.left-1&&box.right<=bounds.right+1&&box.top>=bounds.top-1&&box.bottom<=bounds.bottom+1),
+          overlap:boxes.some((a,i)=>boxes.slice(i+1).some(b=>a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b.top<a.bottom)),
+          groups:tags.map(tag=>tag.dataset.vehicle), topics:tags.map(tag=>tag.dataset.topic)});
+      }
+      return result;
+    })()`);
+    for (const stage of labels) {
+      assert.equal(stage.inside, true, 'Floating drone labels must remain within their panel');
+      assert.equal(stage.overlap, false, 'Two nearby drone labels must remain separate');
+      assert.deepEqual(stage.groups, expected === 2 ? ['drone_1', 'drone_2'] : ['drone_1']);
+      assert.ok(stage.topics.includes('/drone_1/fusion/odom'), 'The floating tag should identify its fusion anchor');
+    }
+  };
   for (let i = 0; i < 50; i++) { try { if ((await fetch('http://127.0.0.1:4189')).ok) break; } catch {} await delay(100); }
   await cdp('Page.navigate', { url: 'http://127.0.0.1:4189' });
   await until(`document.querySelector('.header-actions .btn-primary')`);
+  assert.equal(await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()`), '#ff4d0a', 'Preserve the orange interface theme');
   // The terminal works without a backend and keeps notes across page reloads.
   await evaluate(`document.querySelector('.chat-launcher').click()`);
   await until(`document.activeElement?.id==='agent-message'`);
@@ -127,10 +180,10 @@ try {
   if (lan) assert.equal(await evaluate(`document.querySelector('[aria-label="Rosbridge WebSocket address"]').value`), 'ws://127.0.0.1:4189/rosbridge/preview');
   else await evaluate(`(()=>{const input=document.querySelector('[aria-label="Rosbridge WebSocket address"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'ws://127.0.0.1:${server.address().port}');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Connect').click()`);
-  await until(`document.querySelectorAll('.topic-row').length===8`);
+  await until(`document.querySelectorAll('.topic-row').length===${Object.keys(fixtures).length}`);
   let stats = {};
   if (!navigationOnly) {
-  await evaluate(`[...document.querySelectorAll('.topic-row input[type=checkbox]')].filter(input=>!input.getAttribute('aria-label').includes('/drone_1/')).forEach(input=>input.click())`);
+  await evaluate(`[...document.querySelectorAll('.topic-row input[type=checkbox]')].filter(input=>!input.getAttribute('aria-label').includes('/drone_')).forEach(input=>input.click())`);
   await evaluate(`document.querySelector('.offcanvas .btn-close').click()`);
   await until(`document.querySelectorAll('.sensor-canvas').length===2`);
   await evaluate(`(()=>{const s=document.querySelector('[aria-label="camera source"]');s.value='/camera/raw';s.dispatchEvent(new Event('change',{bubbles:true}));const l=document.querySelector('[aria-label="lidar source"]');l.value='/scan';l.dispatchEvent(new Event('change',{bubbles:true}));})()`);
@@ -227,6 +280,7 @@ try {
     Object.assign(reference, { x: 10 + 8 * Math.cos(t), y: 10 + 5 * Math.sin(t), z: 2 + 0.5 * Math.sin(t * 2) });
     const estimate = fixtures['/drone_1/fusion/odom'][1].pose.pose.position;
     Object.assign(estimate, { x: reference.x + 0.25 + 0.08 * Math.sin(t * 2), y: reference.y + 0.15, z: reference.z + 0.12 });
+    for (const [i, name] of groupedTracks.entries()) Object.assign(fixtures[name][1].pose.pose.position, { x: reference.x + (i >= 2 ? 4 : 0) + i * 0.15, y: reference.y + (i >= 2 ? 4 : 0) + i * 0.12, z: reference.z + i * 0.15 });
   }, 50);
   await evaluate(`document.querySelector('input[aria-label="Toggle /drone_1/fusion/odom"]').click()`);
   await until(`document.querySelectorAll('.flight-source-card').length===1`);
@@ -237,6 +291,7 @@ try {
   await evaluate(`document.querySelector('.trajectory-panel').scrollIntoView({block:'start'});[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='Fit tracks').click()`);
   await delay(300);
   assert.equal(await evaluate(`!document.querySelector('.trajectory-origin').hidden`), true, '3D origin must be visible after fitting');
+  await assertVehicleLabels(1);
   const viewer3d = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile('/tmp/mission-trajectory-3d.png', Buffer.from(viewer3d.data, 'base64'));
   await evaluate(`[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='2D').click()`);
@@ -246,6 +301,58 @@ try {
   const viewer2d = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile('/tmp/mission-trajectory-2d.png', Buffer.from(viewer2d.data, 'base64'));
   assert.equal(await evaluate(`document.querySelectorAll('.trajectory-canvas canvas').length`), 1);
+  await evaluate(`document.querySelector('.header-actions .btn-primary').click()`);
+  for (const name of groupedTracks) await evaluate(`document.querySelector('input[aria-label="Toggle ${name}"]').click()`);
+  await evaluate(`document.querySelector('.offcanvas .btn-close').click()`);
+  await until(`document.querySelectorAll('.trajectory-legend-group').length===2 && document.querySelectorAll('.trajectory-legend-item').length===7`);
+  await until(`document.querySelectorAll('.topic-map-trail').length===7`);
+  await assertTopicColors();
+  await assertVehicleLabels(2);
+  assert.equal(await evaluate(`[...document.querySelectorAll('.flight-source-card')].every(card=>card.querySelector('.vehicle-tag')?.dataset.vehicle===card.dataset.topic.split('/')[1])`), true, 'Flight cards need matching vehicle badges');
+  const groupStyles = await evaluate(`[...document.querySelectorAll('.trajectory-legend-group')].map(group=>({name:group.getAttribute('aria-label'),color:getComputedStyle(group.querySelector('strong')).color,tracks:[...group.querySelectorAll('.trajectory-legend-item')].map(item=>({topic:item.dataset.topic,source:item.dataset.source,pattern:item.dataset.pattern,color:getComputedStyle(item.querySelector('svg')).color}))}))`);
+  assert.notEqual(groupStyles[0].color, groupStyles[1].color, 'Vehicles must have different color families');
+  for (const group of groupStyles) {
+    for (const [source, pattern] of [['imu', 'dotted'], ['gps', 'dashed'], ['fusion', 'solid']]) {
+      assert.equal(group.tracks.find(track => track.source === source).pattern, pattern);
+    }
+    assert.equal(new Set(group.tracks.map(track => track.color)).size, group.tracks.length, 'Sources within a vehicle must have distinct shades');
+  }
+  await delay(1200);
+  await evaluate(`document.querySelector('.trajectory-panel').scrollIntoView({block:'start'});[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='Fit tracks').click()`);
+  await delay(300);
+  // Orbit/zoom and 2D projection changes must keep tags anchored and bounded.
+  await evaluate(`[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='3D').click()`);
+  await until(`document.querySelector('[aria-label="Orthographic 3D position tracks"]')`);
+  await delay(300);
+  await assertVehicleLabels(2);
+  const stageBox = await evaluate(`(()=>{const r=document.querySelector('.trajectory-canvas').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: stageBox.x, y: stageBox.y, deltaX: 0, deltaY: -80 });
+  await delay(400);
+  await assertVehicleLabels(2);
+  await evaluate(`[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='2D').click()`);
+  await until(`document.querySelector('[aria-label="Top-down XY position tracks"]')`);
+  await delay(300);
+  await assertVehicleLabels(2);
+  const groupedDesktop = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-trajectory-groups-desktop.png', Buffer.from(groupedDesktop.data, 'base64'));
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await delay(500);
+  await evaluate(`document.querySelector('.trajectory-panel').scrollIntoView({block:'start'})`);
+  await assertVehicleLabels(2);
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'Grouped legend must fit mobile width');
+  assert.equal(await evaluate(`document.querySelector('.trajectory-stage').clientHeight > 150`), true, 'Grouped legend must leave room for the trajectory');
+  const groupedMobile = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-trajectory-groups-mobile.png', Buffer.from(groupedMobile.data, 'base64'));
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await delay(300);
+  await evaluate(`document.querySelector('.header-actions .btn-primary').click()`);
+  for (const name of groupedTracks) await evaluate(`document.querySelector('input[aria-label="Toggle ${name}"]').click()`);
+  await evaluate(`document.querySelector('.offcanvas .btn-close').click()`);
+  await until(`document.querySelectorAll('.trajectory-legend-item').length===2`);
+  await assertVehicleLabels(1);
+  const stableColor = groupStyles[0].tracks.find(track => track.topic === '/drone_1/fusion/odom').color;
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.trajectory-legend-item[data-topic="/drone_1/fusion/odom"] svg')).color`), stableColor, 'Removing sources must not recolor retained tracks');
+  await assertTopicColors();
   streaming = false;
   await delay(500);
   const idleBefore = await evaluate('window.__drawCalls');
@@ -259,6 +366,13 @@ try {
   assert.equal(chosenRoles.estimate, '/drone_1/fusion/odom');
   await evaluate(`document.querySelector('[aria-label="Swap reference and estimate"]').click()`);
   assert.equal(await evaluate(`document.querySelector('[aria-label="Reference topic"]').value`), chosenRoles.estimate);
+  await delay(350);
+  await assertTopicColors();
+  for (const metric of ['Orientation', 'Velocity', 'Position']) {
+    await evaluate(`[...document.querySelectorAll('.estimation-panel [role="tab"]')].find(button=>button.textContent==='${metric}').click()`);
+    await delay(300);
+    await assertTopicColors();
+  }
   await evaluate(`document.querySelector('[aria-label="Swap reference and estimate"]').click()`);
   assert.equal(await evaluate(`document.querySelector('.flight-state-panel').innerHTML.includes('#ffd060')`), false);
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1900, height: 1200, deviceScaleFactor: 1, mobile: false });

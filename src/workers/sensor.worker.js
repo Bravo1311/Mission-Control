@@ -1,7 +1,8 @@
 import { bytes, decodeRawImage, decodeLidar, sensorProblem, compressedDimensions } from '../lib/sensorData.js';
 import { performanceProfile } from '../lib/performanceProfile.js';
+import { topicStyle } from '../lib/topicStyles.js';
 
-function lidarImage(msg, range, profile) {
+function lidarImage(msg, range, profile, topicName) {
   const { points, count, total } = decodeLidar(msg, profile.maxPoints);
   const canvas = new OffscreenCanvas(profile.lidarSize, profile.lidarSize);
   const ctx = canvas.getContext('2d');
@@ -16,7 +17,7 @@ function lidarImage(msg, range, profile) {
   ctx.fillText('+X / forward', 412, 24); ctx.fillText('+Y / left', 20, 388);
   ctx.fillText(`${range} m radius`, 16, 778);
   const scale = 380 / range;
-  ctx.fillStyle = '#ff4d0a';
+  ctx.fillStyle = topicStyle(topicName || '').color;
   let drawn = 0;
   for (let i = 0; i < count; i++) {
     const x = 400 - points[i * 3 + 1] * scale;
@@ -49,13 +50,13 @@ async function cameraImage(msg, profile) {
   return { bitmap, note: `${dimensions.width} × ${dimensions.height} · ${msg.format || 'compressed image'}${msg.preview?.note ? ` · ${msg.preview.note}` : ''}` };
 }
 
-self.onmessage = async ({ data: { kind, msg, range, mode } }) => {
+self.onmessage = async ({ data: { kind, msg, range, mode, topicName } }) => {
   try {
     const started = performance.now();
     const problem = sensorProblem(msg, kind);
     if (problem) throw new Error(problem);
     const profile = performanceProfile(mode);
-    const result = kind === 'camera' ? await cameraImage(msg, profile) : lidarImage(msg, range, profile);
+    const result = kind === 'camera' ? await cameraImage(msg, profile) : lidarImage(msg, range, profile, topicName);
     self.postMessage({ ...result, decodeMs: performance.now() - started }, [result.bitmap]);
   } catch (error) {
     self.postMessage({ error: error.message || 'Could not decode sensor frame.' });

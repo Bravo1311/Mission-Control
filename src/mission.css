@@ -60,7 +60,7 @@ body { font-family: var(--sans); }
 .sensor-caption { flex-shrink: 0; padding: 0; display: block; color: var(--text-dim); background: var(--panel); border-top: 1px solid var(--border); }
 .sensor-frame-info { display: flex; align-items: center; gap: 12px; min-height: 33px; padding: 8px 16px 0; font-size: 12px; min-width: 0; }
 .sensor-state { flex-shrink: 0; color: var(--text-dim); }
-.sensor-state::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); display: inline-block; margin: 0 6px 1px 0; }
+.sensor-state::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--topic-color); display: inline-block; margin: 0 6px 1px 0; }
 .sensor-format { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sensor-frame-name { font-family: var(--mono); color: var(--text-faint); margin-left: auto; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sensor-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 12px 0 14px; }
@@ -104,14 +104,13 @@ body { font-family: var(--sans); }
 .topic-values dt { color: var(--text-dim); font-weight: 400; }
 .topic-values dd { font-family: var(--mono); margin-bottom: 12px; overflow-wrap: anywhere; }
 .topic-detail pre { color: var(--text); font-size: 12px; margin: 0; max-height: 220px; overflow: auto; }
-.topic-scalar { color: var(--accent-strong); font-size: 28px; }
+.topic-scalar { color: var(--topic-color); font-size: 28px; }
 .diagnostic-list { font-size: 12px; overflow-wrap: anywhere; }
 .diagnostic-list > div { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .diagnostic-level-0 strong { color: var(--success); }
 .diagnostic-level-1 strong { color: var(--warning); }
 .diagnostic-level-2 strong { color: var(--danger); }
 .diagnostic-level-3 strong { color: var(--text-dim); }
-.panel-type-lidar { color: var(--accent-strong); border-color: var(--accent-border); }
 :root[data-night='on'] .mission-overview { opacity: .5; }
 @media (max-width: 900px) {
  .app-header { padding: 12px 16px; gap: 16px; }
@@ -211,6 +210,33 @@ body { font-family: var(--sans); }
 }
 
 .error-comparison label { border-left: 2px solid var(--comparison-color); padding-left: 10px; }
+.comparison-role { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.topic-swatch { display: inline-block; width: 28px; height: 12px; flex-shrink: 0; vertical-align: middle; }
+.topic-swatch line { stroke: currentColor; stroke-width: 2; }
+.topic-detail-heading strong { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.topic-detail { border-top-color: var(--topic-color); }
+.topic-name { display: flex; align-items: baseline; gap: 7px; }
+.topic-name > span { min-width: 0; }
+.topic-row::before { background: var(--topic-color); }
+.topic-row .form-check-input:checked { background-color: var(--topic-color); border-color: var(--topic-color); }
+
+/* Orange remains the interface accent; vehicle tags use only data colors. */
+.vehicle-tag { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px; max-width: 180px; min-width: 0; border: 1px solid var(--border-strong); border-left: 2px solid var(--vehicle-color); border-radius: 3px; background: #10141a; color: var(--text); font: 600 10px/1.3 var(--mono); vertical-align: middle; }
+.vehicle-tag > i { width: 5px; height: 5px; background: var(--vehicle-color); flex-shrink: 0; }
+.vehicle-tag > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flight-source-header .vehicle-tag { flex-shrink: 0; max-width: 125px; }
+.map-stage { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.vehicle-label-layer { position: absolute; inset: 0; z-index: 450; pointer-events: none; overflow: hidden; }
+.vehicle-label-leaders { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+.vehicle-label-leaders line { stroke-width: 1; opacity: .8; }
+.vehicle-floating-tag { position: absolute; top: 0; left: 0; width: max-content; max-width: 164px; min-width: 88px; padding: 5px 8px; border: 1px solid var(--border-strong); border-left: 3px solid var(--vehicle-color); border-radius: 3px; background: #10141af2; box-shadow: 0 2px 5px #0005; }
+.vehicle-floating-tag > strong { display: block; max-width: 144px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 11px/1.35 var(--mono); color: var(--vehicle-color); }
+.vehicle-floating-tag > span { display: block; max-width: 144px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10px/1.3 var(--mono); color: var(--text-dim); }
+.sensor-vehicle-label, .error-plot-identity { position: absolute; z-index: 1; top: 10px; left: 12px; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 4px 6px; background: #10141ae8; border-radius: 3px; pointer-events: none; font: 10px var(--mono); color: var(--text-dim); }
+.sensor-vehicle-label > span:last-child, .error-plot-identity > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sensor-vehicle-label .vehicle-tag, .error-plot-identity .vehicle-tag { flex-shrink: 0; }
+.error-plot-stage { position: relative; }
+.error-plot-identity { left: auto; right: 22px; top: 4px; }
 
 /* A shared technical stage for XY and orthographic 3D tracks. */
 .trajectory-panel { scroll-margin-top: 84px; }
@@ -218,10 +244,15 @@ body { font-family: var(--sans); }
 .trajectory-panel .segmented { height: 30px; border-radius: 4px; border-color: var(--border); }
 .trajectory-panel .segmented button { padding: 0 13px; font-size: 12px; }
 .trajectory-content { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-.trajectory-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--panel); }
-.trajectory-legend-item { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 280px; font-size: 11px; font-family: var(--mono); color: var(--text-dim); }
+.trajectory-legend { display: flex; flex-direction: column; gap: 9px; padding: 10px 16px; max-height: 132px; overflow-y: auto; border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--panel); }
+.trajectory-legend-group { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
+.trajectory-group-name { flex: 0 0 108px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 11px var(--mono); }
+.trajectory-group-sources { display: flex; flex-wrap: wrap; gap: 7px 20px; min-width: 0; }
+.trajectory-legend-item { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 280px; font-size: 11px; font-family: var(--mono); color: var(--text-dim); }
 .trajectory-legend-item > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.trajectory-legend-item > i { width: 17px; height: 2px; display: block; flex-shrink: 0; }
+.trajectory-legend-item > svg { width: 36px; height: 12px; flex-shrink: 0; overflow: visible; }
+.trajectory-legend-item line { stroke: currentColor; stroke-width: 2; }
+.trajectory-legend-key { display: flex; flex-wrap: wrap; gap: 5px 18px; padding: 7px 16px; color: var(--text-faint); font-size: 10px; background: var(--panel); flex-shrink: 0; }
 .trajectory-marker-key { display: flex; align-items: center; gap: 7px; margin-left: auto; color: var(--text-faint); font-size: 11px; }
 .trajectory-marker-key > i { width: 7px; height: 7px; border: 1px solid var(--text-dim); border-radius: 50%; }
 .trajectory-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #10141a; }
@@ -237,7 +268,11 @@ body { font-family: var(--sans); }
 .trajectory-status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 18px; padding: 10px 16px; flex-shrink: 0; font-size: 11px; color: var(--text-dim); border-top: 1px solid var(--border); background: var(--panel); }
 .trajectory-status > span + span { color: var(--text-faint); }
 @media (max-width: 600px) {
- .trajectory-legend { gap: 7px 12px; padding: 10px 12px; }
+ .trajectory-legend { padding: 10px 12px; }
+ .trajectory-legend-group { flex-direction: column; gap: 5px; }
+ .trajectory-group-name { flex-basis: auto; max-width: 100%; }
+ .trajectory-group-sources { gap: 6px 12px; }
+ .trajectory-legend-key { padding: 7px 12px; }
  .trajectory-legend-item { max-width: 230px; }
  .trajectory-marker-key { margin-left: 0; }
  .trajectory-status { padding: 10px 12px; }

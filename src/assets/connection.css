@@ -307,7 +307,5 @@
 }
 
 .panel-type-trajectory { color: var(--accent-strong); border-color: var(--accent-border); background: var(--accent-bg); }
-.panel-type-geo { color: #3ddc84; border-color: rgba(61, 220, 132, .35); background: var(--success-bg); }
-.panel-type-imu { color: #c9a6ff; border-color: rgba(168, 85, 247, .35); background: rgba(168, 85, 247, .12); }
-.panel-type-camera { color: #ff8a00; border-color: rgba(255, 138, 0, .35); background: var(--warning-bg); }
-.panel-type-diagnostics { color: #ff6b5b; border-color: rgba(255, 92, 92, .35); background: var(--danger-bg); }
+/* Topic identity comes from its shared swatch; type badges remain neutral. */
+.panel-type-badge { color: var(--text-dim); border-color: var(--border-strong); background: var(--panel); }

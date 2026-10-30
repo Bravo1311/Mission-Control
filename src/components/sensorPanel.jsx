@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useTelemetry } from '../context/telemetryContext.jsx';
 import { createLatestFramePump } from '../lib/latestFrame.js';
 import Panel from './panel.jsx';
+import { topicStyle } from '../lib/topicStyles.js';
+import TopicSwatch from './topicSwatch.jsx';
+import VehicleTag from './vehicleTag.jsx';
 
 function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, registerPreview, requestedInterval }) {
   const canvasRef = useRef(null);
@@ -56,7 +59,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, 
       }
       lastDispatch = performance.now();
       watchdog = setTimeout(() => fail('Frame decoding timed out. Pause and resume to retry, or use a smaller sensor stream.'), 5000);
-      try { worker.postMessage({ kind, msg, range, mode: profile.mode }); }
+      try { worker.postMessage({ kind, msg, range, mode: profile.mode, topicName: topic.name }); }
       catch (error) { fail(error.message); }
     });
     worker.onmessage = ({ data }) => {
@@ -135,6 +138,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, 
 
   return (
     <div ref={hostRef} className="sensor-display">
+      <div className="sensor-vehicle-label"><VehicleTag name={topic.name} /><span>{topicStyle(topic.name).sourceLabel}</span></div>
       <canvas ref={canvasRef} className="sensor-canvas" width="800" height="450" aria-label={`${kind === 'camera' ? 'Camera image' : 'Lidar XY preview'} from ${topic.name}`} />
       {info.error && <div className="sensor-message" role="status">{info.error}</div>}
       <div className="sensor-caption">
@@ -184,9 +188,9 @@ export default function SensorPanel({ kind }) {
         </details>
       </>
     }>
-      <div className="sensor-content">
+      <div className="sensor-content" data-topic={topic.name} style={{ '--topic-color': topicStyle(topic.name).color }}>
         <div className="sensor-sourcebar">
-          <label className="sensor-source">Source
+          <label className="sensor-source"><TopicSwatch name={topic.name} />Source
             <select className="panel-select" aria-label={`${kind} source`} value={topic.name} onChange={e => setChosen(e.target.value)}>
               {topics.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
             </select>

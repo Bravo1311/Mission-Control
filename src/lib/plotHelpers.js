@@ -1,8 +1,3 @@
-// Shared across StateEstimatePanel, GpsPanel, and (later) anywhere else
-// that overlays multiple topics — keeps topic->color consistent app-wide.
-// Portfolio orange leads; other series retain distinct comparison colors.
-export const PALETTE = ['#FF4D0A', '#ECECEC', '#3DDC84', '#FF4B3A', '#B084F5', '#FF8A00', '#7C9EFF', '#FF6FA8'];
-
 export function plotLayout(extra) {
   return {
     paper_bgcolor: 'rgba(0,0,0,0)',

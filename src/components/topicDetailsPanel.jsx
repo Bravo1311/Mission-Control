@@ -1,6 +1,9 @@
 import { useTelemetry } from '../context/telemetryContext.jsx';
 import { PANEL_LABEL } from '../lib/inferPanelType.js';
 import Panel from './panel.jsx';
+import { topicStyle } from '../lib/topicStyles.js';
+import TopicSwatch from './topicSwatch.jsx';
+import VehicleTag from './vehicleTag.jsx';
 
 const DISPLAY_TYPES = new Set(['imu', 'scalar', 'vector', 'diagnostics', 'raw']);
 const fmt = value => typeof value === 'number' ? (Number.isFinite(value) ? Number(value.toPrecision(6)).toString() : String(value)) : String(value);
@@ -44,8 +47,8 @@ export default function TopicDetailsPanel() {
     <div className="topic-details">
       {topics.map(topic => {
         const kind = classify(topic.name);
-        return <article key={topic.name} className="topic-detail">
-          <div className="topic-detail-heading"><strong className="mono">{topic.name}</strong><span>{PANEL_LABEL[kind]}</span></div>
+        return <article key={topic.name} className="topic-detail" data-topic={topic.name} style={{ '--topic-color': topicStyle(topic.name).color }}>
+          <div className="topic-detail-heading"><strong className="mono" title={topic.name}><VehicleTag name={topic.name} /><TopicSwatch name={topic.name} />{topicStyle(topic.name).sourceLabel}</strong><span>{PANEL_LABEL[kind]}</span></div>
           <MessageSummary kind={kind} msg={getBuffer(topic.name).raw.at(-1)} />
         </article>;
       })}

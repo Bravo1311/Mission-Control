@@ -2,9 +2,11 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useTelemetry } from '../context/telemetryContext.jsx';
-import { PALETTE, latLon, orientation, quaternionToEuler } from '../lib/plotHelpers.js';
+import { latLon, orientation, quaternionToEuler } from '../lib/plotHelpers.js';
+import { topicStyle, TOPIC_DASHES } from '../lib/topicStyles.js';
 import { sampleIndices } from '../lib/telemetryUpdates.js';
 import Panel from './panel.jsx';
+import { createVehicleLabels } from '../lib/vehicleLabels.js';
 
 // A position ring and short bearing tick keep the map aligned with the
 // trajectory viewer's point markers without suggesting a vehicle model.
@@ -48,6 +50,8 @@ const GpsPanel = () => {
   const mapInstance = useRef(null);
   const layers = useRef({}); // topicName -> { trail, marker }
   const centered = useRef(false);
+  const labelsRef = useRef(null);
+  const labelsApi = useRef(null);
 
   // create the map once
   useEffect(() => {
@@ -58,6 +62,17 @@ const GpsPanel = () => {
       maxZoom: 19,
     }).addTo(map);
     mapInstance.current = map;
+    const labels = createVehicleLabels(labelsRef.current);
+    const updateLabels = () => {
+      const size = map.getSize();
+      labels.update(Object.entries(layers.current).map(([name, layer]) => {
+        const point = map.latLngToContainerPoint(layer.marker.getLatLng());
+        return { name, style: topicStyle(name), x: point.x, y: point.y,
+          visible: point.x >= 0 && point.x <= size.x && point.y >= 0 && point.y <= size.y };
+      }), size.x, size.y);
+    };
+    labelsApi.current = updateLabels;
+    map.on('move zoom resize', updateLabels);
 
     // Leaflet measures its container once, at creation. If the surrounding
     // layout hasn't finished sizing this panel yet at that exact moment, it
@@ -78,6 +93,8 @@ const GpsPanel = () => {
       active = false;
       ro.disconnect();
       mapInstance.current = null;
+      labelsApi.current = null;
+      map.off('move zoom resize', updateLabels); labels.clear();
       // Remove owned paths before their renderer and map are destroyed.
       // Trails remain bounded to 600 samples per topic with the SVG renderer.
       Object.values(layers.current).forEach(({ trail, marker }) => {
@@ -106,10 +123,10 @@ const GpsPanel = () => {
       delete layers.current[name];
     });
 
-    topics.forEach((t, i) => {
+    topics.forEach(t => {
       const buf = getBuffer(t.name);
       const existing = layers.current[t.name];
-      if (existing?.buffer === buf && existing.version === buf.version && existing.colorIndex === i) return;
+      if (existing?.buffer === buf && existing.version === buf.version) return;
       const last = buf.raw[buf.raw.length - 1];
       const lastLL = last ? latLon(last) : null;
       if (!lastLL) {
@@ -122,11 +139,11 @@ const GpsPanel = () => {
         }
         return;
       }
-      const color = PALETTE[i % PALETTE.length];
+      const { color, pattern } = topicStyle(t.name);
 
       if (!layers.current[t.name]) {
         layers.current[t.name] = {
-          trail: L.polyline([], { color, weight: 2, opacity: 0.9 }).addTo(mapInstance.current),
+          trail: L.polyline([], { color, dashArray: TOPIC_DASHES[pattern]?.join(' '), weight: 2, opacity: 0.9, className: 'topic-map-trail' }).addTo(mapInstance.current),
           marker: L.marker([lastLL.lat, lastLL.lon], { icon: droneIcon(color) })
             .addTo(mapInstance.current)
             .bindTooltip(t.name),
@@ -136,8 +153,9 @@ const GpsPanel = () => {
       const layer = layers.current[t.name];
       layer.buffer = buf;
       layer.version = buf.version;
-      layer.colorIndex = i;
       const { trail, marker } = layer;
+      if (trail.getElement()) trail.getElement().dataset.topic = t.name;
+      if (marker.getElement()) marker.getElement().dataset.topic = t.name;
       marker.setLatLng([lastLL.lat, lastLL.lon]);
       trail.setLatLngs(
         sampleIndices(buf.raw.length, profile.trajectoryPoints).map((k) => latLon(buf.raw[k])).filter(Boolean).map((ll) => [ll.lat, ll.lon])
@@ -157,6 +175,7 @@ const GpsPanel = () => {
         centered.current = true; // only auto-center once, then let the user pan/zoom freely
       }
     });
+    labelsApi.current?.();
   });
 
   return (
@@ -166,7 +185,10 @@ const GpsPanel = () => {
     <Panel title="Navigation map" subtitle="Georeferenced position history" icon={
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Zm6-3v15m6-12v15" /></svg>
     } style={topics.length === 0 ? { display: 'none' } : undefined}>
-      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+      <div className="map-stage">
+        <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+        <div ref={labelsRef} className="vehicle-label-layer" aria-label="Drone map labels" />
+      </div>
     </Panel>
   );
 };

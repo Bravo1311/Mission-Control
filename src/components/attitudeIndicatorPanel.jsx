@@ -1,6 +1,9 @@
 import { memo, useId } from 'react';
 import { useTelemetry } from '../context/telemetryContext.jsx';
-import { PALETTE, orientation, quaternionToEuler, horizontalSpeed, verticalSpeed } from '../lib/plotHelpers.js';
+import { orientation, quaternionToEuler, horizontalSpeed, verticalSpeed } from '../lib/plotHelpers.js';
+import { topicStyle } from '../lib/topicStyles.js';
+import TopicSwatch from './topicSwatch.jsx';
+import VehicleTag from './vehicleTag.jsx';
 import { formatReadout } from '../lib/comparisonRoles.js';
 import Panel from './panel.jsx';
 
@@ -208,13 +211,14 @@ const AttitudeIndicatorPanel = () => {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><path d="M3 12h5l2 3h4l2-3h5M12 3v3m-3 2h6"/></svg>
     }>
       <div className="vehicle-grid">
-        {withData.map(({ topic, frame, euler, hSpd, vSpd }, i) => {
-          const color = PALETTE[i % PALETTE.length];
+        {withData.map(({ topic, frame, euler, hSpd, vSpd }) => {
+          const { color } = topicStyle(topic.name);
           return (
-            <section key={topic.name} className="flight-source-card" style={{ '--series-color': color }}>
+            <section key={topic.name} className="flight-source-card" data-topic={topic.name} style={{ '--series-color': color }}>
               <header className="flight-source-header">
-                <span className="vehicle-dot" style={{ background: color }} />
-                <span className="mono flight-source-name" title={topic.name}>{topic.name}</span>
+                <TopicSwatch name={topic.name} />
+                <VehicleTag name={topic.name} />
+                <span className="mono flight-source-name" title={topic.name}>{topicStyle(topic.name).sourceLabel}</span>
                 {frame && <span className="flight-frame" title={`Coordinate frame: ${frame}`}>{frame}</span>}
               </header>
               <div className="flight-card-body" data-has-attitude={!!euler}>

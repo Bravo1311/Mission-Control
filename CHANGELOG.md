@@ -1,5 +1,17 @@
 # Change history
 
+## 2026-10-30 — Vehicle families in the trajectory viewer
+
+- Retained the original orange interface accent and status colors. Vehicle data uses cyan, magenta, lime, gold, and further families, with a tighter source-shade range to preserve each group's identity and matching source patterns.
+- Added floating vehicle/source tags to the 2D/3D trajectory stage and navigation map, with leader lines to actual positions, stable selection of an available source, panel bounds, and overlap reduction. Matching vehicle badges identify flight cards, sensor feeds, comparison roles/charts, readout cards, and legend groups.
+- Centralized topic identity in `topicStyles.js` and applied exact colors across trajectories, map trails/markers, flight pointers/bars, comparison selectors, topic selection, readout cards, sensor labels, and lidar points. Map dashes and reusable source swatches follow the same source convention. Camera pixels are unchanged.
+- Error traces follow the estimate's style across metrics and role swaps; removed the old per-panel indexed palette. Browser checks compare rendered colors and patterns across panels after selection changes and role swaps.
+- Grouped trajectory legend entries by vehicle prefix, including nested `/fleet/drone_1/...` namespaces and case-insensitive visual grouping.
+- Replaced selection-index colors with stable vehicle hues and source-specific shades. IMU / INS estimates use dots, GPS / GNSS / RTK estimates use dashes, fusion estimates use solid lines, and reference tracks use long dashes. Source conventions match across vehicles.
+- Sorted vehicles naturally and sources consistently to make comparisons easier. Full topic names remain available on hover; subscriptions and coordinate frames are unchanged.
+- Applied the same styles to the legend, latest-position markers, and both projections. Dash lengths follow zoom; position and distance buffers remain bounded and reused. The grouped legend scrolls within a capped height on small screens.
+- Added focused grouping/style checks and desktop/mobile browser coverage with two vehicles, three source types, and selection changes.
+
 ## 2026-10-29 — LAN access and mobile telemetry
 
 This update builds on `d91c7d5`, which added the animated SVG to the README. It adds phone access over a local network and moves mobile camera preparation onto the host.

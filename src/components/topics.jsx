@@ -10,6 +10,8 @@ import '../assets/connection.css'
 import { useTelemetry } from "../context/telemetryContext";
 import { inferPanelType, PANEL_LABEL } from "../lib/inferPanelType.js";
 import { useNightMode } from "../lib/useNightMode.js";
+import { topicStyle } from "../lib/topicStyles.js";
+import TopicSwatch from './topicSwatch.jsx';
 
 const STATUS_LABEL = {
     connected: 'Connected',
@@ -149,7 +151,7 @@ const Topics = () => {
                                     const checked = isSelected(e.name)
                                     const count = tele.getBuffer(e.name)?.raw.length
                                     return (
-                                        <ListGroupItem key={e.name} className={`topic-row ${checked ? 'topic-row-active' : ''}`}>
+                                        <ListGroupItem key={e.name} className={`topic-row ${checked ? 'topic-row-active' : ''}`} data-topic={e.name} style={{ '--topic-color': topicStyle(e.name).color }}>
                                             <Row className="align-items-center g-2">
                                                 <Col xs="auto">
                                                     <InputGroup>
@@ -166,7 +168,7 @@ const Topics = () => {
                                                     </InputGroup>
                                                 </Col>
                                                 <Col>
-                                                    <div className="topic-name">{e.name}</div>
+                                                    <div className="topic-name"><TopicSwatch name={e.name} /><span>{e.name}</span></div>
                                                     <div className="topic-type mono">{e.type}</div>
                                                 </Col>
                                                 <Col xs="auto" className="text-end">
