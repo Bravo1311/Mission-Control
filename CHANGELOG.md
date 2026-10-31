@@ -2,6 +2,7 @@
 
 ## 2026-10-31 — Separate Mission Control workspace
 
+- Refreshed the animated README SVG with alternating Mission and Analysis views, fleet colors, floating drone labels, overlaid instruments, configurable controls, and the local console. The preview uses illustrative simulated telemetry.
 - Added a persistent Analysis/Mission control switch. Preserved the mounted Analysis grid, layout storage, panel visibility, and view settings. Shared the existing ROS connection, selected topics, and buffers; suspended high-rate subscriptions and sensor workers in inactive views.
 - Added a dedicated responsive Mission layout with fleet/target selection, map/trajectory/flight/camera/lidar views, source-labelled target telemetry, a command dock, and an embedded console.
 - Added locally configured ROS service calls and one-shot publications with exact namespace expansion, JSON validation, inline request review, one explicit send, bounded result logs, and no automatic retries or replay. Kept publications unconfirmed and timeout/disconnect outcomes unknown.

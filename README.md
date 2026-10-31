@@ -1,6 +1,6 @@
 # Mission Control — ROS 2 telemetry dashboard
 
-![Animated Mission Control dashboard showing trajectory, lidar, flight instruments, and estimation error](docs/assets/dashboard-preview.svg)
+![Animated preview alternating between Mission Control with fleet map, ROS controls and local console, and Analysis with grouped drone tracks, lidar, overlaid flight instruments and estimation error](docs/assets/dashboard-preview.svg)
 
 *Illustrative preview with simulated telemetry.*
 
