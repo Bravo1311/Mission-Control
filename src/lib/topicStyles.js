@@ -1,15 +1,26 @@
 // Color identifies the vehicle; shade and line pattern identify the source.
 // Derive both from names so selection order and unsubscribe/reconnect do not
 // recolor existing tracks. ROS names themselves remain case-sensitive.
-// Separate consecutive vehicles by hue, rather than giving both pale cool
-// colors. Keep this data palette independent of the orange interface accent.
-const VEHICLE_HUES = [190, 310, 82, 46, 230, 142, 10, 270];
+// Restrained instrument colors: steel blue, ochre, sage, slate violet,
+// copper, blue gray, olive and silver. Arbitrary namespaces use this same
+// palette rather than generating unrestricted, potentially neon hues.
+// Keep the data palette independent of the orange interface accent.
+const VEHICLE_PALETTE = [
+  { hue: 212, saturation: 38, lightness: 64 },
+  { hue: 40, saturation: 44, lightness: 60 },
+  { hue: 106, saturation: 18, lightness: 60 },
+  { hue: 253, saturation: 19, lightness: 66 },
+  { hue: 18, saturation: 32, lightness: 62 },
+  { hue: 195, saturation: 18, lightness: 64 },
+  { hue: 64, saturation: 23, lightness: 61 },
+  { hue: 220, saturation: 8, lightness: 73 },
+];
 const SOURCES = {
-  fusion: { label: 'Fusion', pattern: 'solid', lightness: 57, saturation: 62 },
-  imu: { label: 'IMU', pattern: 'dotted', lightness: 64, saturation: 55 },
-  gps: { label: 'GPS', pattern: 'dashed', lightness: 60, saturation: 60 },
-  reference: { label: 'Reference', pattern: 'long-dashed', lightness: 68, saturation: 52 },
-  odometry: { label: 'Odometry', pattern: 'long-dashed', lightness: 62, saturation: 57 },
+  fusion: { label: 'Fusion', pattern: 'solid', lightnessOffset: -3 },
+  imu: { label: 'IMU', pattern: 'dotted', lightnessOffset: 6 },
+  gps: { label: 'GPS', pattern: 'dashed', lightnessOffset: 0 },
+  reference: { label: 'Reference', pattern: 'long-dashed', lightnessOffset: 10 },
+  odometry: { label: 'Odometry', pattern: 'long-dashed', lightnessOffset: 3 },
 };
 
 function hash(text) {
@@ -48,18 +59,20 @@ export function topicStyle(name) {
     : has('odom', 'odometry', 'pose') ? 'odometry' : 'other';
   const source = SOURCES[sourceKind] || {
     label: 'Source', pattern: ['solid', 'dashed', 'dotted', 'long-dashed'][hash(sourceKey) % 4],
-    lightness: 57 + hash(sourceKey) % 9, saturation: 58,
+    lightnessOffset: hash(sourceKey) % 9 - 3,
   };
   const numbered = prefix.at(-1)?.match(/^(?:drone|uav|robot)[_-]?(\d+)$/i);
   const index = numbered ? Number(numbered[1]) : null;
-  const hue = index === null ? hash(groupKey || 'unnamespaced') % 360
-    : (VEHICLE_HUES[(index + VEHICLE_HUES.length - 1) % VEHICLE_HUES.length] + Math.floor(index / VEHICLE_HUES.length) * 137.508
-      + (prefix.length > 1 ? hash(prefix.slice(0, -1).join('/').toLowerCase()) % 360 : 0)) % 360;
-  const color = colorHex(hue, source.saturation, source.lightness);
+  const paletteIndex = index === null ? hash(groupKey || 'unnamespaced')
+    : index + VEHICLE_PALETTE.length - 1
+      + (prefix.length > 1 ? hash(prefix.slice(0, -1).join('/').toLowerCase()) : 0);
+  const { hue, saturation, lightness } = VEHICLE_PALETTE[paletteIndex % VEHICLE_PALETTE.length];
+  const sourceLightness = lightness + source.lightnessOffset;
+  const color = colorHex(hue, saturation, sourceLightness);
   return {
     groupKey, groupLabel: prefix.join('/') || 'Unnamespaced', hue,
-    groupColor: colorHex(hue, 62, 60), color,
-    nightColor: colorHex(117, 72, Math.max(64, Math.min(78, source.lightness + 9))),
+    groupColor: colorHex(hue, saturation, lightness + 2), color,
+    nightColor: colorHex(117, 72, Math.max(64, Math.min(78, sourceLightness + 9))),
     fill: `rgba(${[1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16)).join(',')},0.08)`,
     sourceLabel, sourceKind, sourceTitle: source.label, pattern: source.pattern,
   };

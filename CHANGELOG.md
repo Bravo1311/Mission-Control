@@ -1,5 +1,10 @@
 # Change history
 
+## 2026-10-31 — Restrained topic palette
+
+- Replaced cyan/magenta vehicle colors with steel blue, warm ochre, sage, slate violet, copper, blue gray, olive, and silver. Arbitrary namespaces use the same curated palette.
+- Retained deterministic vehicle grouping, source shades and line patterns across every panel, with the orange interface accent. Updated the animated README preview to match the shared topic styles.
+
 ## 2026-10-31 — Separate Mission Control workspace
 
 - Refreshed the animated README SVG with alternating Mission and Analysis views, fleet colors, floating drone labels, overlaid instruments, configurable controls, and the local console. The preview uses illustrative simulated telemetry.
