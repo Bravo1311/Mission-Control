@@ -12,7 +12,8 @@
     "test": "node --test tests/*.test.mjs",
     "test:browser": "node tests/browser-sensors.mjs",
     "test:browser:lan": "node tests/browser-sensors.mjs --lan",
-    "test:browser:dev": "node tests/browser-sensors.mjs --dev --navigation-only"
+    "test:browser:dev": "node tests/browser-sensors.mjs --dev --navigation-only",
+    "test:performance": "node tests/browser-sensors.mjs --navigation-only --profile"
   },
   "dependencies": {
     "bootstrap": "^5.3.8",

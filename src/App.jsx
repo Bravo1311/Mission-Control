@@ -9,9 +9,16 @@ import DashboardGrid from './components/dashboardGrid'
 import SensorPanel from './components/sensorPanel'
 import TopicDetailsPanel from './components/topicDetailsPanel'
 import ChatTerminal from './components/chatTerminal'
+import { groupFlightTopics } from './lib/flightState.js'
+import { flightPanelId } from './lib/panelPreferences.js'
+import { WorkspaceActivityContext } from './context/workspaceActivity.js'
+import { AUTO_ALERTS_ENABLED } from './lib/alertPolicy.js'
 import './App.css'
 import './mission.css'
 import './night.css'
+import './missionWorkspace.css'
+
+const MissionWorkspace = lazy(() => import('./components/missionWorkspace.jsx'))
 
 
 // Which panels exist is still decided here, same as before the grid —
@@ -28,15 +35,17 @@ const DashboardBody = () => {
     return <EmptyState />
   }
 
-  const trajCount = selected.filter((t) => classify(t.name) === 'trajectory').length
+  const trajectoryTopics = selected.filter((t) => classify(t.name) === 'trajectory')
+  const trajCount = trajectoryTopics.length
   const hasGeo = selected.some((t) => ['geo', 'trajectory'].includes(classify(t.name)))
 
   const kinds = new Set(selected.map(t => classify(t.name)))
   const panels = [
     trajCount > 0 && { id: 'trajectory', node: <StateEstimatePanel /> },
     hasGeo && { id: 'gps', node: <GpsPanel /> },
-    trajCount > 0 && { id: 'attitude', sourceCount: trajCount, node: <AttitudeIndicatorPanel /> },
-    trajCount >= 2 && { id: 'error', node: <ErrorPanel /> },
+    ...groupFlightTopics(trajectoryTopics).map(group => ({ id: flightPanelId(group.key), kind: 'attitude', title: `Flight state · ${group.label}`,
+      sourceCount: group.topics.length, node: <AttitudeIndicatorPanel group={group} /> })),
+    trajCount >= 2 && { id: 'error', node: <ErrorPanel />, monitor: AUTO_ALERTS_ENABLED ? <ErrorPanel monitorOnly /> : null },
     kinds.has('camera') && { id: 'camera', node: <SensorPanel kind="camera" /> },
     kinds.has('lidar') && { id: 'lidar', node: <SensorPanel kind="lidar" /> },
     ['imu', 'scalar', 'vector', 'diagnostics', 'raw'].some(k => kinds.has(k)) && { id: 'readings', node: <TopicDetailsPanel /> },
@@ -60,32 +69,36 @@ const DashboardBody = () => {
   return <DashboardGrid panels={panels} />
 }
 
-const MissionOverview = () => {
-  const { selected, available } = useTelemetry()
-  return (
-    <div className="mission-overview">
-      <div className="mission-heading"><h1>Telemetry workspace</h1><p>ROS 2 sensor monitoring</p></div>
-      <dl className="mission-summary">
-        <div><dt>Selected sources</dt><dd>{String(selected.length).padStart(2, '0')}</dd></div>
-        <div><dt>Available topics</dt><dd>{String(available.length).padStart(2, '0')}</dd></div>
-      </dl>
-    </div>
-  )
-}
-
 const App = ({ bridgeUrl }) => {
+  const [workspace, setWorkspace] = useState(() => {
+    try { return localStorage.getItem('mission-control.workspace.v1') === 'mission' ? 'mission' : 'analysis' } catch { return 'analysis' }
+  })
+  const [missionLoaded, setMissionLoaded] = useState(workspace === 'mission')
+  const changeWorkspace = next => {
+    if (!['analysis', 'mission'].includes(next)) return
+    setWorkspace(next)
+    if (next === 'mission') setMissionLoaded(true)
+    try { localStorage.setItem('mission-control.workspace.v1', next) } catch { /* session only */ }
+  }
   return (
     <TelemetryProvider bridgeUrl={bridgeUrl}>
       <div className="app-shell">
-        <Topics />
-        <main className="app-main">
-          <MissionOverview />
-          <DashboardBody />
-        </main>
-        <ChatTerminal />
+        <Topics workspace={workspace} onWorkspaceChange={changeWorkspace} />
+        <WorkspaceActivityContext.Provider value={workspace === 'analysis'}>
+          <main className="app-main" id="analysis-workspace" role="tabpanel" aria-labelledby="analysis-workspace-tab" hidden={workspace !== 'analysis'} data-workspace-active={workspace === 'analysis'}>
+            <DashboardBody />
+            <ChatTerminal />
+          </main>
+        </WorkspaceActivityContext.Provider>
+        {missionLoaded && <WorkspaceActivityContext.Provider value={workspace === 'mission'}>
+          <main className="mission-main" id="mission-workspace" role="tabpanel" aria-labelledby="mission-workspace-tab" hidden={workspace !== 'mission'} data-workspace-active={workspace === 'mission'}>
+            <Suspense fallback={<div className="mission-loading">Opening Mission control…</div>}><MissionWorkspace /></Suspense>
+          </main>
+        </WorkspaceActivityContext.Provider>}
       </div>
     </TelemetryProvider>
   )
 }
 
 export default App
+import { lazy, Suspense, useState } from 'react'

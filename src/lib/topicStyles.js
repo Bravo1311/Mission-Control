@@ -9,7 +9,7 @@ const SOURCES = {
   imu: { label: 'IMU', pattern: 'dotted', lightness: 64, saturation: 55 },
   gps: { label: 'GPS', pattern: 'dashed', lightness: 60, saturation: 60 },
   reference: { label: 'Reference', pattern: 'long-dashed', lightness: 68, saturation: 52 },
-  odometry: { label: 'Odometry', pattern: 'solid', lightness: 62, saturation: 57 },
+  odometry: { label: 'Odometry', pattern: 'long-dashed', lightness: 62, saturation: 57 },
 };
 
 function hash(text) {
@@ -59,6 +59,7 @@ export function topicStyle(name) {
   return {
     groupKey, groupLabel: prefix.join('/') || 'Unnamespaced', hue,
     groupColor: colorHex(hue, 62, 60), color,
+    nightColor: colorHex(117, 72, Math.max(64, Math.min(78, source.lightness + 9))),
     fill: `rgba(${[1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16)).join(',')},0.08)`,
     sourceLabel, sourceKind, sourceTitle: source.label, pattern: source.pattern,
   };

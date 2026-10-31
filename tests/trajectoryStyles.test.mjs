@@ -14,6 +14,7 @@ test('one vehicle uses one hue, with distinct IMU, GPS and fusion source styles'
 });
 
 test('source conventions match between drones while vehicle hues differ', () => {
+  assert.notEqual(trajectoryStyle('/drone_1/odometry').pattern, trajectoryStyle('/drone_1/fusion/odom').pattern);
   assert.notEqual(trajectoryStyle('/drone_0/odom').hue, trajectoryStyle('/drone_1/odom').hue);
   for (const source of ['imu/odom', 'gps/fix', 'fusion/odom', 'ground_truth/pose', 'odometry']) {
     const a = trajectoryStyle(`/drone_1/${source}`), b = trajectoryStyle(`/drone_2/${source}`);

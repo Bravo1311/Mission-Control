@@ -43,7 +43,7 @@ function MessageSummary({ msg, kind }) {
 export default function TopicDetailsPanel() {
   const { selected, classify, getBuffer } = useTelemetry(500);
   const topics = selected.filter(t => DISPLAY_TYPES.has(classify(t.name)));
-  return <Panel title="Sensor readings & messages" padded>
+  return <Panel title="Sensor readings & messages" sources={topics.map(topic => topic.name)} padded>
     <div className="topic-details">
       {topics.map(topic => {
         const kind = classify(topic.name);

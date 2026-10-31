@@ -1,42 +1,42 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useEffect, useRef, useState } from 'react';
+import { panelIsAwake } from '../lib/nightPanel.js';
 
-// Camera/lidar-only sessions never need to download or initialize Plotly.
 const Plot = lazy(() => import('./plotlyView.jsx'));
+const CONFIG = { displayModeBar: false };
 
-// react-plotly's `useResizeHandler` only listens for *window* resizes, so a
-// chart inside a resizable grid cell stayed at its old size when the cell
-// changed (the "chart doesn't fill its panel" bug). This measures the
-// container itself and hands Plotly an explicit width/height instead.
-const ResponsivePlot = ({ data, layout, ...rest }) => {
+// Freeze an already-mounted chart while off screen. Keep zoom/pan state, and
+// defer downloading/initializing Plotly until the chart is actually viewed.
+const VisiblePlot = memo(function VisiblePlot({ visible, data, layout, size, ...rest }) {
+  const [seen, setSeen] = useState(visible);
+  if (visible && !seen) setSeen(true);
+  if (!seen || !size || size.width <= 0 || size.height <= 0) return null;
+  return <Suspense fallback={<div className="emptyState">Loading chart…</div>}>
+    <Plot data={data} layout={{ ...layout, ...size, autosize: false }} config={CONFIG} {...rest} />
+  </Suspense>;
+}, (before, after) => !before.visible && !after.visible);
+
+export default function ResponsivePlot({ data, layout, ...rest }) {
   const ref = useRef(null);
   const [size, setSize] = useState(null);
-
+  const [visible, setVisible] = useState(false);
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      const w = Math.floor(width), h = Math.floor(height);
-      setSize(previous => previous?.width === w && previous?.height === h ? previous : { width: w, height: h });
+    let intersects = false;
+    const update = () => setVisible(intersects && !document.hidden && panelIsAwake(el));
+    const intersection = new IntersectionObserver(([entry]) => { intersects = entry.isIntersecting; update(); });
+    intersection.observe(el);
+    const resize = new ResizeObserver(([entry]) => {
+      const width = Math.floor(entry.contentRect.width), height = Math.floor(entry.contentRect.height);
+      setSize(previous => previous?.width === width && previous?.height === height ? previous : { width, height });
     });
-    ro.observe(el);
-    return () => ro.disconnect();
+    resize.observe(el);
+    const mode = new MutationObserver(update);
+    mode.observe(document.documentElement, { attributes: true, attributeFilter: ['data-focus'] });
+    if (el.closest('.panel')) mode.observe(el.closest('.panel'), { attributes: true, attributeFilter: ['data-night-state'] });
+    document.addEventListener('visibilitychange', update);
+    return () => { intersection.disconnect(); resize.disconnect(); mode.disconnect(); document.removeEventListener('visibilitychange', update); };
   }, []);
-
-  return (
-    <div ref={ref} style={{ width: '100%', height: '100%', minHeight: 0 }}>
-      {size && size.width > 0 && size.height > 0 && (
-        <Suspense fallback={<div className="emptyState">Loading chart…</div>}>
-        <Plot
-          data={data}
-          layout={{ ...layout, width: size.width, height: size.height, autosize: false }}
-          config={{ displayModeBar: false }}
-          {...rest}
-        />
-        </Suspense>
-      )}
-    </div>
-  );
-};
-
-export default ResponsivePlot;
+  return <div ref={ref} className="responsive-plot" style={{ width: '100%', height: '100%', minHeight: 0 }}>
+    <VisiblePlot visible={visible} data={data} layout={layout} size={size} {...rest} />
+  </div>;
+}

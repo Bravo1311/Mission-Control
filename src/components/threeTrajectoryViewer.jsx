@@ -7,6 +7,7 @@ import { TOPIC_DASHES } from '../lib/topicStyles.js';
 import { finitePosition, trajectoryFit, boundsWithOrigin } from '../lib/trajectoryView.js';
 import { useTelemetry } from '../context/telemetryContext.jsx';
 import { createVehicleLabels } from '../lib/vehicleLabels.js';
+import { panelIsAwake } from '../lib/nightPanel.js';
 
 const CAPACITY = 600;
 const dispose = object => object.traverse(item => {
@@ -40,7 +41,7 @@ function referenceGrid(fit) {
   for (const [points, opacity] of [[minor, 0.25], [major, 0.55]]) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-    const material = new THREE.LineBasicMaterial({ color: '#465361', transparent: true, opacity, depthWrite: false });
+    const material = new THREE.LineBasicMaterial({ color: document.documentElement.dataset.night === 'on' ? '#29402c' : '#465361', transparent: true, opacity, depthWrite: false });
     group.add(new THREE.LineSegments(geometry, material));
   }
   return group;
@@ -82,7 +83,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
     renderer.domElement.setAttribute('aria-label', mode === '3d' ? 'Orthographic 3D position tracks' : 'Top-down XY position tracks');
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#10141a');
+    scene.background = new THREE.Color(document.documentElement.dataset.night === 'on' ? '#000' : '#10141a');
     const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.01, 10000);
     camera.up.set(...(mode === '2d' ? [0, 1, 0] : [0, 0, 1]));
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -120,7 +121,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
     };
     const render = () => {
       frame = null;
-      if (disposed || !visible || document.hidden || document.documentElement.dataset.night === 'on') return;
+      if (disposed || !visible || document.hidden || !panelIsAwake(el)) return;
       const moved = controls.update();
       const unitsPerPixel = (camera.top - camera.bottom) / camera.zoom / Math.max(1, el.clientHeight);
       for (const entry of entries.values()) {
@@ -212,7 +213,7 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
     renderer.domElement.addEventListener('pointermove', locateCursor);
     renderer.domElement.addEventListener('pointerleave', hideCursor);
     const update = () => {
-      if (disposed || !visible || document.hidden || document.documentElement.dataset.night === 'on') return;
+      if (disposed || !visible || document.hidden || !panelIsAwake(el)) return;
       const { topics, getBuffer } = inputRef.current;
       const currentNames = new Set(topics.map(topic => topic.name));
       let changed = false;
@@ -297,14 +298,23 @@ export default function ThreeTrajectoryViewer({ topics, getBuffer, mode = '3d', 
       if (visible) { update(); invalidate(); }
     });
     intersection.observe(el);
-    const wake = () => { if (!document.hidden) { update(); invalidate(); } };
+    const wake = () => {
+      const night = document.documentElement.dataset.night === 'on';
+      scene.background.set(night ? '#000' : '#10141a');
+      grid?.children.forEach(line => line.material.color.set(night ? '#29402c' : '#465361'));
+      if (!document.hidden) { update(); invalidate(); }
+    };
     document.addEventListener('visibilitychange', wake);
+    const nightObserver = new MutationObserver(wake);
+    nightObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-night', 'data-focus'] });
+    if (el.closest('.panel')) nightObserver.observe(el.closest('.panel'), { attributes: true, attributeFilter: ['data-night-state'] });
     const timer = setInterval(update, profile.instrumentMs);
     update(); invalidate();
     return () => {
       disposed = true; apiRef.current = null;
       clearInterval(timer); cancelAnimationFrame(frame);
       resize.disconnect(); intersection.disconnect(); document.removeEventListener('visibilitychange', wake);
+      nightObserver.disconnect();
       renderer.domElement.removeEventListener('pointermove', locateCursor);
       renderer.domElement.removeEventListener('pointerleave', hideCursor); hideCursor();
       controls.removeEventListener('change', invalidate); controls.dispose();

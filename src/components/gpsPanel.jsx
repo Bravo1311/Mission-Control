@@ -7,6 +7,7 @@ import { topicStyle, TOPIC_DASHES } from '../lib/topicStyles.js';
 import { sampleIndices } from '../lib/telemetryUpdates.js';
 import Panel from './panel.jsx';
 import { createVehicleLabels } from '../lib/vehicleLabels.js';
+import { panelIsAwake } from '../lib/nightPanel.js';
 
 // A position ring and short bearing tick keep the map aligned with the
 // trajectory viewer's point markers without suggesting a vehicle model.
@@ -109,7 +110,7 @@ const GpsPanel = () => {
 
   // update marker + trail per topic as new fixes arrive
   useEffect(() => {
-    if (!mapInstance.current) return;
+    if (!mapInstance.current || !panelIsAwake(mapRef.current)) return;
 
     // remove map layers for any topic that's no longer selected — same
     // leak class as the Three.js viewer: without this, every add/remove
@@ -182,7 +183,7 @@ const GpsPanel = () => {
     // display:none (not unmounting) on purpose — the Leaflet instance below
     // is created once and kept alive across topic toggles so pan/zoom state
     // and the drawn trail survive a GPS topic being removed and re-added.
-    <Panel title="Navigation map" subtitle="Georeferenced position history" icon={
+    <Panel sources={topics.map(topic => topic.name)} title="Navigation map" subtitle="Georeferenced position history" icon={
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Zm6-3v15m6-12v15" /></svg>
     } style={topics.length === 0 ? { display: 'none' } : undefined}>
       <div className="map-stage">

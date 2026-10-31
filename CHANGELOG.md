@@ -1,5 +1,56 @@
 # Change history
 
+## 2026-10-31 — Separate Mission Control workspace
+
+- Added a persistent Analysis/Mission control switch. Preserved the mounted Analysis grid, layout storage, panel visibility, and view settings. Shared the existing ROS connection, selected topics, and buffers; suspended high-rate subscriptions and sensor workers in inactive views.
+- Added a dedicated responsive Mission layout with fleet/target selection, map/trajectory/flight/camera/lidar views, source-labelled target telemetry, a command dock, and an embedded console.
+- Added locally configured ROS service calls and one-shot publications with exact namespace expansion, JSON validation, inline request review, one explicit send, bounded result logs, and no automatic retries or replay. Kept publications unconfirmed and timeout/disconnect outcomes unknown.
+- Added local console commands and operational notes with separate Mission chat history. Reused the existing chat-session implementation without claiming an AI backend.
+- Disabled automatic alert banners, panel wake-up, and hidden-panel alert monitoring at the operator's request. Manual comparison data and inline severity colors remain available.
+- Added unit/browser coverage for command validation, exact target case, disconnection/timeout cleanup, review-before-send, no replay, separate histories, preserved Analysis geometry, inactive rendering, sensor cleanup, and phone layout.
+
+## 2026-10-31 — Compact workspace and rendering performance
+
+- Removed the redundant workspace title, source counters, display-count toolbar, and permanent trajectory-style explanation. Combined panel recovery and layout reset in one compact row and reduced the desktop header height.
+- Cached floating drone-label dimensions, batched writes before initial measurements, avoided unchanged text/style/attribute writes, and replaced repeated placement sorting with a minimum-score scan. Resize/font/source changes still refresh label measurements.
+- Deferred Plotly loading until a chart is viewed and froze chart redraws off screen, in Focus standby, or while the browser tab is hidden. Comparison calculations and alert monitoring continue.
+- Replaced per-panel status timers with one shared clock and status-change subscriptions. Removed Night glow filters and used opacity for master/camera illumination.
+- Added a repeatable synthetic browser performance profile (`npm run test:performance`) and retained source-color, label-boundary, camera, alert, and layout regression coverage.
+
+## 2026-10-31 — Independent Night illumination and Focus
+
+- Separated low-light styling from panel visibility. Night preserves the complete normal dashboard and layout, keeps streams active, and retains drone/source hues, line patterns, and labels across panels. Updated the map tiles, 3D scene, chart grid/text, and menus for low light.
+- Added an independent Focus switch, with persistent per-panel Show/Blank choices in day or Night. Drone flight panels can also be blanked. Focus uses a temporary compact layout; exiting restores normal geometry. Normal layout editing remains available in Night.
+- Added fine master dimming and a separately saved camera-image brightness control. Dimming does not affect transport or data.
+- Added an always-accessible active-alert summary, Inspect, and acknowledgement that leaves ongoing faults active. Permanently hidden estimation panels retain a lightweight comparison monitor, and critical alerts override Focus standby.
+- Added per-topic live/stale/waiting/connection indicators that continue to update during reception outages, and clearer camera paused/unavailable/stale captions.
+- Added regression coverage for legacy preference migration, independent modes, saved Focus choices, exact layout/source-color preservation, idle stale-data detection, hidden-panel alert monitoring/acknowledgement, camera dimming, sensor suspension/wake, and reload persistence.
+
+## 2026-10-31 — Focused night panel
+
+- Reworked Night instruments around larger illuminated dials, fine bank/heading graduations, compact source readouts, and minimal panel chrome. Rebalanced contrast so markings remain readable against black faces; Night panel heights now follow the instrument footprint and source count rather than inheriting day sizing.
+- Replaced stacked opacity/grayscale/sepia filters with almost-black surfaces and green instrument illumination, following the supplied dashboard reference. Green source shades, patterns, and marker shapes preserve overlay identity; amber/red remain alert colors. Added an adjustable 40–100% dimmer. The orange day theme and source palette are unchanged.
+- Added a separate Night layout: essential flight panels first, automatic alert expansion, manually revealed panels, then compact standby headers. Day positions and sizes are preserved, and layout editing is disabled in Night mode.
+- Added Show/Blank controls for nonessential panels. Standby bodies are inert and rendering sleeps; explicitly revealed sensor previews resume normally. Critical estimation alerts wake their panel automatically and return it to standby when clear.
+- Saved mode and dimmer settings, applied them before app startup to avoid a day-theme flash, and reset manual reveals at the start of each Night session.
+- Added tests for preference recovery, session resets, non-destructive Night layout, sensor wake/blank, essential visibility, alert wake-up, color preservation, phone layout, and reload persistence.
+
+## 2026-10-31 — Simultaneous flight-state overlays
+
+- Created an independent Flight state panel per drone namespace. Each panel overlays all selected sources for that drone on shared attitude/heading dials and speed scales, retaining source colors, patterns, marker shapes, and a readout-table legend.
+- Made plain odometry long-dashed with hollow triangular markers, while fusion remains solid with filled diamonds. Added an explicit browser check and preview for `/drone_1/odometry` and `/drone_1/fusion/odom` sharing the same attitude and heading SVGs simultaneously.
+- Added stable per-drone panel IDs and separate drag/resize, hidden-panel preferences, highlights, and speed ranges. Desktop defaults place drone panels side by side when space permits. Existing global flight-panel hide preferences are honored.
+- Added hover, focus, and tap highlighting, preserved across panel hide/restore. Readouts include exact values and frame names for each source; missing fields remain blank and speed scales expand to contain valid values.
+- Normalized valid orientation quaternions and rejected invalid/zero quaternions. Overlays use each topic's latest received values without averaging or applying frame/time alignment.
+- Added checks for every source appearing on shared dials, missing fields, expanded scales, matching colors, highlighting, and selection/removal lifecycle. Hidden-panel controls remain available.
+
+## 2026-10-30 — Consolidated instruments and hidden panels
+
+- Consolidated flight instruments into one compact card per drone, with a source selector instead of repeating complete dials for every odometry topic. Fusion is the default; manual choices persist in the browser and removed sources fall back to an available topic. Missing fields remain explicitly unavailable.
+- Added a hide control to each dashboard panel and a collapsible Hidden panels drawer with individual restore and Restore all actions. Visibility preferences persist across reloads and topic changes, with a recovery view when all panels are hidden.
+- Hiding preserves topic selections, telemetry history, saved layout sizes, and key view settings while unmounting the visualization and releasing workers/renderers. Flight layout height now follows drone count instead of source count.
+- Added preference/grouping tests and browser coverage for selecting sources, restoring view settings, sensor-worker cleanup, all-panels-hidden recovery, and saved visibility after reload.
+
 ## 2026-10-30 — Vehicle families in the trajectory viewer
 
 - Retained the original orange interface accent and status colors. Vehicle data uses cyan, magenta, lime, gold, and further families, with a tighter source-shade range to preserve each group's identity and matching source patterns.

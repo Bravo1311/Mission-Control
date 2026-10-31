@@ -1,240 +1,148 @@
-import { memo, useId } from 'react';
+import { useId, useState } from 'react';
 import { useTelemetry } from '../context/telemetryContext.jsx';
-import { orientation, quaternionToEuler, horizontalSpeed, verticalSpeed } from '../lib/plotHelpers.js';
-import { topicStyle } from '../lib/topicStyles.js';
+import { usePanelPreference } from '../context/panelActions.js';
+import { flightReading, flightSpeedLimit } from '../lib/flightState.js';
+import { TOPIC_DASHES } from '../lib/topicStyles.js';
+import { formatReadout } from '../lib/comparisonRoles.js';
 import TopicSwatch from './topicSwatch.jsx';
 import VehicleTag from './vehicleTag.jsx';
-import { formatReadout } from '../lib/comparisonRoles.js';
 import Panel from './panel.jsx';
 
-// Attitude and heading share one 140-unit coordinate space and render as
-// width:100% SVGs, so they scale to whatever room the panel gives them
-// (capped at MAX_GAUGE_PX) instead of sitting at a fixed size with dead
-// space around them.
-const SIZE = 140;
-const CENTER = SIZE / 2;
-const RADIUS = SIZE / 2 - 4;
-const PX_PER_DEG = 1.8;
-const MAX_SPEED = 20; // m/s — tune to your typical flight envelope
-const MAX_VSPEED = 5; // m/s climb/descent — tune separately, vertical rates are usually much smaller than ground speed
-const MAX_GAUGE_PX = 160;
+const SIZE = 180, CENTER = 90, RADIUS = 80;
+const RING = 'var(--dial-ring, #465361)', TICK = 'var(--dial-tick, #8292a5)', LABEL = 'var(--dial-label, #b8c5d3)';
+const dash = track => TOPIC_DASHES[track.style.pattern]?.join(' ');
+const opacity = (name, active) => !active || name === active ? 1 : 0.16;
+const needleRadius = index => RADIUS - 9 - index % 4 * 4;
+const ink = track => `var(--source-ink, ${track.style.color})`;
+const nightInk = track => ({ '--source-night': track.style.nightColor });
 
-const FACE = '#11171e';
-const RING = '#3b4857';
-const TICK = '#8292a5';
-const LABEL = '#c6cfd9';
+function Marker({ track, x, y, size = 3 }) {
+  const color = ink(track);
+  if (track.style.sourceKind === 'imu') return <circle cx={x} cy={y} r={size} fill="var(--dial-face, #10141a)" stroke={color} strokeWidth="1.7" />;
+  if (track.style.sourceKind === 'gps') return <rect x={x-size} y={y-size} width={size*2} height={size*2} fill="var(--dial-face, #10141a)" stroke={color} strokeWidth="1.7" />;
+  if (track.style.sourceKind === 'odometry') return <path d={`M${x} ${y-size-1}L${x+size+1} ${y+size}H${x-size-1}Z`} fill="var(--dial-face, #10141a)" stroke={color} strokeWidth="1.7" />;
+  return <path d={`M${x} ${y-size-1}l${size+1} ${size+1}-${size+1} ${size+1}-${size+1}-${size+1}Z`} fill={color} stroke="var(--dial-face, #10141a)" strokeWidth="0.7" />;
+}
 
-const svgProps = {
-  viewBox: `0 0 ${SIZE} ${SIZE}`,
-  width: '100%',
-  style: { display: 'block', margin: '0 auto', maxWidth: MAX_GAUGE_PX },
-};
+function Instrument({ label, count, children }) {
+  return <section className="flight-overlay-instrument">
+    <h3>{label}</h3>
+    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`${label}: ${count} topic overlays`}>{children}</svg>
+    <span className="flight-overlay-count">{count} {count === 1 ? 'source' : 'sources'}</span>
+  </section>;
+}
 
-// Shared wrapper: label above, instrument, numeric readout below.
-const Gauge = ({ label, readout, children }) => (
-  <div className="gauge">
-    <div className="gauge-label">{label}</div>
-    <svg {...svgProps} role="img" aria-label={`${label}: ${readout}`}>{children}</svg>
-    <div className="gauge-readout mono">{readout}</div>
-  </div>
-);
-
-// ---------- Attitude indicator (roll/pitch) ----------
-// Flat two-tone ADI: cool slate above the horizon, warm graphite below —
-// low saturation so it sits inside the dashboard's own palette, but still
-// readable as up/down at a glance. Labeled pitch ladder, a fixed roll scale
-// on the bezel with a pointer that tracks bank angle, and a dark-outlined
-// wing reference that holds up against either half.
-const ROLL_TICKS = [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60];
-const PITCH_LADDER = [-50, -40, -30, -20, -10, 10, 20, 30, 40, 50];
-
-const Horizon = ({ roll, pitch, color }) => {
-  const clipId = `horizon-clip-${useId()}`;
-  const pitchOffset = Math.max(-60, Math.min(60, pitch)) * PX_PER_DEG;
-
-  return (
-    <Gauge label="Attitude" readout={`${formatReadout(roll, 1)}° / ${formatReadout(pitch, 1)}°`}>
-      <defs>
-        <clipPath id={clipId}><circle cx={CENTER} cy={CENTER} r={RADIUS - 1} /></clipPath>
-      </defs>
-
-      <g clipPath={`url(#${clipId})`}>
-        <g transform={`rotate(${-roll} ${CENTER} ${CENTER}) translate(0 ${pitchOffset})`}>
-          <rect x={CENTER - SIZE} y={CENTER - SIZE * 2} width={SIZE * 2} height={SIZE * 2} fill="#273b4b" />
-          <rect x={CENTER - SIZE} y={CENTER} width={SIZE * 2} height={SIZE * 2} fill="#18212b" />
-          <line x1={CENTER - SIZE} y1={CENTER} x2={CENTER + SIZE} y2={CENTER} stroke="#bac8d7" strokeWidth="1.5" />
-          {PITCH_LADDER.map((d) => {
-            const major = d % 20 === 0;
-            const half = major ? 22 : 13;
-            const y = CENTER - d * PX_PER_DEG;
-            return (
-              <g key={d}>
-                <line x1={CENTER - half} y1={y} x2={CENTER + half} y2={y}
-                      stroke="#bac8d7" strokeWidth={major ? 1.4 : 1} opacity="0.85" />
-                {major && (
-                  <>
-                    <text x={CENTER - half - 4} y={y} fill="#bac8d7" fontSize="8" fontFamily="var(--mono)"
-                          textAnchor="end" dominantBaseline="middle" opacity="0.8">{Math.abs(d)}</text>
-                    <text x={CENTER + half + 4} y={y} fill="#bac8d7" fontSize="8" fontFamily="var(--mono)"
-                          textAnchor="start" dominantBaseline="middle" opacity="0.8">{Math.abs(d)}</text>
-                  </>
-                )}
-              </g>
-            );
-          })}
+function AttitudeOverlay({ tracks, active }) {
+  const clip = `flight-attitude-${useId()}`;
+  const valid = tracks.filter(track => track.roll !== null && track.pitch !== null);
+  return <Instrument label="Attitude" count={valid.length}>
+    <defs><clipPath id={clip}><circle cx={CENTER} cy={CENTER} r={RADIUS-1} /></clipPath></defs>
+    <g clipPath={`url(#${clip})`}>
+      <path d={`M0 0H${SIZE}V${CENTER}H0Z`} fill="var(--dial-sky, #22313e)" />
+      <path d={`M0 ${CENTER}H${SIZE}V${SIZE}H0Z`} fill="var(--dial-ground, #141c25)" />
+      {[-30, -20, -10, 0, 10, 20, 30].map(degrees => <g key={degrees} opacity={degrees === 0 ? 0.7 : 0.4}>
+        <line x1={CENTER-25} x2={CENTER+25} y1={CENTER-degrees*1.8} y2={CENTER-degrees*1.8} stroke={TICK} strokeWidth="0.8" />
+        {degrees !== 0 && <text x={CENTER-29} y={CENTER-degrees*1.8+3} textAnchor="end" fill={LABEL} fontSize="8">{Math.abs(degrees)}</text>}
+      </g>)}
+      {valid.map((track, index) => <g className="flight-attitude-track" key={track.name} data-topic={track.name} style={nightInk(track)} opacity={opacity(track.name, active)}>
+        <title>{`${track.name}: roll ${formatReadout(track.roll, 1)}°, pitch ${formatReadout(track.pitch, 1)}°`}</title>
+        <g transform={`rotate(${-track.roll} ${CENTER} ${CENTER}) translate(0 ${track.pitch*1.8})`}>
+          <line x1="-90" y1={CENTER} x2="270" y2={CENTER} stroke={ink(track)} strokeWidth={active === track.name ? 2.8 : 1.7} strokeDasharray={dash(track)} />
+          <Marker track={track} x={CENTER+28+index%4*9} y={CENTER} />
         </g>
-      </g>
+      </g>)}
+    </g>
+    {[-60, -30, 0, 30, 60].map(degrees => <g key={degrees} transform={`rotate(${degrees} ${CENTER} ${CENTER})`}>
+      <line x1={CENTER} x2={CENTER} y1="10" y2="16" stroke={TICK} />
+    </g>)}
+    <g className="flight-night-markings" fill={LABEL} stroke={TICK}>
+      {[-50, -40, -20, -10, 10, 20, 40, 50].map(degrees => <line key={degrees} x1={CENTER} x2={CENTER} y1="10" y2="13" transform={`rotate(${degrees} ${CENTER} ${CENTER})`} strokeWidth=".7" />)}
+      {[-60, -30, 30, 60].map(degrees => <text key={degrees} x={CENTER + 69 * Math.sin(degrees * Math.PI / 180)} y={CENTER - 69 * Math.cos(degrees * Math.PI / 180) + 1} textAnchor="middle" fontSize="7" stroke="none">{Math.abs(degrees)}</text>)}
+    </g>
+    {valid.map((track, index) => <g key={track.name} className="flight-bank-marker" data-topic={track.name} style={nightInk(track)} transform={`rotate(${-track.roll} ${CENTER} ${CENTER})`} opacity={opacity(track.name, active)}>
+      <Marker track={track} x={CENTER} y={CENTER-needleRadius(index)} />
+    </g>)}
+    <path d="M58 90h22l5 6h10l5-6h22" stroke="var(--dial-face, #10141a)" strokeWidth="5" fill="none" />
+    <path d="M58 90h22l5 6h10l5-6h22" stroke="var(--dial-reference, #d3dce4)" strokeWidth="1.7" fill="none" />
+    <circle cx={CENTER} cy={CENTER} r={RADIUS} fill="none" stroke={RING} strokeWidth="1.5" />
+  </Instrument>;
+}
 
-      {ROLL_TICKS.map((deg) => {
-        const major = deg === 0 || Math.abs(deg) === 30 || Math.abs(deg) === 60;
-        const rad = (deg * Math.PI) / 180;
-        const outer = RADIUS - 2;
-        const inner = major ? RADIUS - 9 : RADIUS - 6;
-        return (
-          <line key={deg}
-                x1={CENTER + outer * Math.sin(rad)} y1={CENTER - outer * Math.cos(rad)}
-                x2={CENTER + inner * Math.sin(rad)} y2={CENTER - inner * Math.cos(rad)}
-                stroke="#bac8d7" strokeWidth={major ? 1.5 : 1} opacity="0.9" />
-        );
-      })}
-      <g transform={`rotate(${-roll} ${CENTER} ${CENTER})`}>
-        <polygon points={`${CENTER - 4},${CENTER - RADIUS + 11} ${CENTER + 4},${CENTER - RADIUS + 11} ${CENTER},${CENTER - RADIUS + 3}`} fill={color} />
-      </g>
+function HeadingOverlay({ tracks, active }) {
+  const valid = tracks.filter(track => track.heading !== null);
+  return <Instrument label="Heading" count={valid.length}>
+    <circle cx={CENTER} cy={CENTER} r={RADIUS} fill="var(--dial-face, #11171e)" stroke={RING} strokeWidth="1.5" />
+    {Array.from({ length: 36 }, (_, index) => index * 10).map(degrees => <g key={degrees} transform={`rotate(${degrees} ${CENTER} ${CENTER})`}>
+      <line x1={CENTER} x2={CENTER} y1="12" y2={degrees % 90 === 0 ? 24 : 17} stroke={TICK} strokeWidth={degrees % 90 === 0 ? 1.6 : 0.8} />
+    </g>)}
+    {[['N', 90, 37], ['E', 146, 94], ['S', 90, 150], ['W', 34, 94]].map(([label, x, y]) => <text key={label} x={x} y={y} textAnchor="middle" fill={LABEL} fontSize="12">{label}</text>)}
+    <g className="flight-night-markings" fill={LABEL} stroke={TICK}>
+      {Array.from({ length: 36 }, (_, index) => index * 10 + 5).map(degrees => <line key={degrees} x1={CENTER} x2={CENTER} y1="12" y2="15" transform={`rotate(${degrees} ${CENTER} ${CENTER})`} strokeWidth=".6" />)}
+      {[30, 60, 120, 150, 210, 240, 300, 330].map(degrees => <text key={degrees} x={CENTER + 59 * Math.sin(degrees * Math.PI / 180)} y={CENTER - 59 * Math.cos(degrees * Math.PI / 180) + 3} textAnchor="middle" fontSize="8" stroke="none">{String(degrees).padStart(3, '0')}</text>)}
+    </g>
+    {valid.map((track, index) => <g key={track.name} className="flight-heading-track" data-topic={track.name} style={nightInk(track)} opacity={opacity(track.name, active)} transform={`rotate(${track.heading} ${CENTER} ${CENTER})`}>
+      <title>{`${track.name}: ${formatReadout(track.heading, 1)}°`}</title>
+      <line x1={CENTER} y1={CENTER+9} x2={CENTER} y2={CENTER-needleRadius(index)} stroke={ink(track)} strokeWidth={active === track.name ? 2.8 : 1.5} strokeDasharray={dash(track)} />
+      <Marker track={track} x={CENTER} y={CENTER-needleRadius(index)} />
+    </g>)}
+    <circle cx={CENTER} cy={CENTER} r="3" fill="var(--dial-reference, #d3dce4)" stroke="var(--dial-face, #11171e)" />
+  </Instrument>;
+}
 
-      <g strokeLinecap="round">
-        <g stroke="#000000" strokeWidth="5.5">
-          <line x1={CENTER - 30} y1={CENTER} x2={CENTER - 9} y2={CENTER} />
-          <line x1={CENTER + 9} y1={CENTER} x2={CENTER + 30} y2={CENTER} />
-          <line x1={CENTER - 9} y1={CENTER} x2={CENTER - 9} y2={CENTER + 6} />
-          <line x1={CENTER + 9} y1={CENTER} x2={CENTER + 9} y2={CENTER + 6} />
-        </g>
-        <g stroke={color} strokeWidth="3">
-          <line x1={CENTER - 30} y1={CENTER} x2={CENTER - 9} y2={CENTER} />
-          <line x1={CENTER + 9} y1={CENTER} x2={CENTER + 30} y2={CENTER} />
-          <line x1={CENTER - 9} y1={CENTER} x2={CENTER - 9} y2={CENTER + 6} />
-          <line x1={CENTER + 9} y1={CENTER} x2={CENTER + 9} y2={CENTER + 6} />
-        </g>
-        <circle cx={CENTER} cy={CENTER} r="2.5" fill={color} stroke="#000000" strokeWidth="1" />
-      </g>
+function SpeedOverlay({ tracks, active, metric, label, minimum, signed = false }) {
+  const valid = tracks.filter(track => track[metric] !== null);
+  const limit = flightSpeedLimit(valid.map(track => track[metric]), minimum);
+  const position = value => 18 + (signed ? (value+limit)/(2*limit) : value/limit) * 324;
+  return <section className="flight-overlay-speed">
+    <h3>{label}<span>m/s</span></h3>
+    <svg viewBox="0 0 360 86" role="img" aria-label={`${label}: ${valid.length} topic overlays, ${signed ? -limit : 0} to ${limit} metres per second`}>
+      <line x1="18" x2="342" y1="37" y2="37" stroke={RING} strokeWidth="2" />
+      {(signed ? [-limit, -limit/2, 0, limit/2, limit] : [0, limit/4, limit/2, limit*3/4, limit]).map(value => <g key={value}>
+        <line x1={position(value)} x2={position(value)} y1="33" y2="42" stroke={TICK} />
+        <text x={position(value)} y="70" textAnchor="middle" fill={LABEL} fontSize="10">{Number(value.toPrecision(4))}</text>
+      </g>)}
+      {valid.map((track, index) => <g key={track.name} className="flight-speed-marker" data-metric={metric} data-topic={track.name} style={nightInk(track)} opacity={opacity(track.name, active)}>
+        <title>{`${track.name}: ${formatReadout(track[metric])} m/s`}</title>
+        <line x1={position(track[metric])} x2={position(track[metric])} y1={13+index%4*5} y2="51" stroke={ink(track)} strokeWidth={active === track.name ? 2.8 : 1.5} strokeDasharray={dash(track)} />
+        <Marker track={track} x={position(track[metric])} y={13+index%4*5} />
+      </g>)}
+    </svg>
+  </section>;
+}
 
-      <circle cx={CENTER} cy={CENTER} r={RADIUS} fill="none" stroke={RING} strokeWidth="2" />
-    </Gauge>
-  );
-};
-
-// ---------- Heading indicator (yaw) — rotating compass card, fixed top index ----------
-const HEADING_LABELS = [
-  { deg: 0, text: 'N' }, { deg: 90, text: 'E' }, { deg: 180, text: 'S' }, { deg: 270, text: 'W' },
-];
-
-const Heading = ({ yawDeg, color }) => {
-  // ROS yaw (REP-103, ENU): 0 = facing +X (East), increases counter-clockwise.
-  // Compass heading: 0 = North, increases clockwise — genuinely different
-  // conventions, requiring both an offset and a direction flip to convert.
-  const norm = ((90 - yawDeg) % 360 + 360) % 360;
-
-  return (
-    <Gauge label="Heading" readout={`${formatReadout(norm, 1)}°`}>
-      <circle cx={CENTER} cy={CENTER} r={RADIUS} fill={FACE} stroke={RING} strokeWidth="2" />
-      <g transform={`rotate(${-norm} ${CENTER} ${CENTER})`}>
-        {Array.from({ length: 36 }, (_, i) => i * 10).map((deg) => {
-          const rad = ((deg - 90) * Math.PI) / 180;
-          const outer = RADIUS - 3;
-          const inner = deg % 90 === 0 ? RADIUS - 13 : deg % 30 === 0 ? RADIUS - 9 : RADIUS - 6;
-          return (
-            <line key={deg}
-                  x1={CENTER + outer * Math.cos(rad)} y1={CENTER + outer * Math.sin(rad)}
-                  x2={CENTER + inner * Math.cos(rad)} y2={CENTER + inner * Math.sin(rad)}
-                  stroke={TICK} strokeWidth={deg % 90 === 0 ? 1.8 : 1} />
-          );
-        })}
-        {HEADING_LABELS.map(({ deg, text }) => {
-          const rad = ((deg - 90) * Math.PI) / 180;
-          const r = RADIUS - 24;
-          return (
-            <text key={text} x={CENTER + r * Math.cos(rad)} y={CENTER + r * Math.sin(rad)}
-                  fill={text === 'N' ? color : LABEL} fontSize="12" fontWeight="700"
-                  textAnchor="middle" dominantBaseline="middle"
-                  transform={`rotate(${norm} ${CENTER + r * Math.cos(rad)} ${CENTER + r * Math.sin(rad)})`}>
-              {text}
-            </text>
-          );
-        })}
-      </g>
-      <polygon points={`${CENTER - 5},6 ${CENTER + 5},6 ${CENTER},15`} fill={color} />
-      <circle cx={CENTER} cy={CENTER} r="2.5" fill={color} />
-    </Gauge>
-  );
-};
-
-// Two digital strips replace the redundant circular speed scales. The signed
-// vertical-speed bar remains centered on zero; display limits never clip values.
-const SpeedReadout = memo(function SpeedReadout({ label, value, limit, signed = false, color }) {
-  const ratio = Number.isFinite(value) ? Math.max(signed ? -1 : 0, Math.min(1, value / limit)) : 0;
-  const left = signed ? (ratio < 0 ? 50 + ratio * 50 : 50) : 0;
-  const width = Math.abs(ratio) * (signed ? 50 : 100);
-  return (
-    <div className="flight-speed">
-      <div className="flight-speed-label">{label}</div>
-      <div className="flight-speed-value mono">{formatReadout(value)} <span>m/s</span></div>
-      <div className={`flight-speed-track${signed ? ' is-signed' : ''}`} aria-hidden="true">
-        <span style={{ left: `${left}%`, width: `${width}%`, backgroundColor: color }} />
+export default function AttitudeIndicatorPanel({ group }) {
+  const { getBuffer } = useTelemetry(50);
+  const [pinned, setPinned] = usePanelPreference('highlightedTopic', null);
+  const [hovered, setHovered] = useState(null);
+  const tracks = group.topics.map(topic => flightReading(topic, getBuffer(topic.name).raw.at(-1)));
+  if (!tracks.length) return null;
+  const candidate = hovered || pinned;
+  const active = tracks.some(track => track.name === candidate) ? candidate : null;
+  return <Panel className="flight-state-panel" vehicle={group.key} sources={group.topics.map(topic => topic.name)} title={`Flight state · ${group.label}`} subtitle="This drone’s topics overlaid · latest received values" padded keepLit icon={
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><path d="M3 12h5l2 3h4l2-3h5M12 3v3m-3 2h6"/></svg>
+  }>
+    <div className="flight-overlay-gauges">
+      <AttitudeOverlay tracks={tracks} active={active} />
+      <HeadingOverlay tracks={tracks} active={active} />
+      <div className="flight-overlay-speeds">
+        <SpeedOverlay tracks={tracks} active={active} metric="ground" label="Ground speed" minimum={20} />
+        <SpeedOverlay tracks={tracks} active={active} metric="vertical" label="Vertical speed" minimum={5} signed />
       </div>
-      <div className="flight-speed-scale" aria-hidden="true"><span>{signed ? `−${limit}` : '0'}</span>{signed && <span>0</span>}<span>{signed ? '+' : ''}{limit} m/s</span></div>
     </div>
-  );
-});
-
-const AttitudeIndicatorPanel = () => {
-  const { selected, classify, getBuffer } = useTelemetry(50);
-  const trajTopics = selected.filter((t) => classify(t.name) === 'trajectory');
-
-  const withData = trajTopics
-    .map((t) => {
-      const buf = getBuffer(t.name);
-      const last = buf.raw[buf.raw.length - 1];
-      if (!last) return null;
-      const q = orientation(last);
-      const hSpd = horizontalSpeed(last);
-      const vSpd = verticalSpeed(last);
-      if (!q && hSpd === null) return null; // nothing to show for this topic
-      return { topic: t, frame: last.header?.frame_id, euler: q ? quaternionToEuler(q) : null, hSpd, vSpd };
-    })
-    .filter(Boolean);
-
-  if (withData.length === 0) return null;
-
-  const deg = (rad) => (rad * 180) / Math.PI;
-
-  return (
-    <Panel className="flight-state-panel" title="Flight state" subtitle="Attitude, heading & velocity by source" padded keepLit icon={
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><path d="M3 12h5l2 3h4l2-3h5M12 3v3m-3 2h6"/></svg>
-    }>
-      <div className="vehicle-grid">
-        {withData.map(({ topic, frame, euler, hSpd, vSpd }) => {
-          const { color } = topicStyle(topic.name);
-          return (
-            <section key={topic.name} className="flight-source-card" data-topic={topic.name} style={{ '--series-color': color }}>
-              <header className="flight-source-header">
-                <TopicSwatch name={topic.name} />
-                <VehicleTag name={topic.name} />
-                <span className="mono flight-source-name" title={topic.name}>{topicStyle(topic.name).sourceLabel}</span>
-                {frame && <span className="flight-frame" title={`Coordinate frame: ${frame}`}>{frame}</span>}
-              </header>
-              <div className="flight-card-body" data-has-attitude={!!euler}>
-                {euler && <Horizon roll={deg(euler.roll)} pitch={deg(euler.pitch)} color={color} />}
-                {euler && <Heading yawDeg={deg(euler.yaw)} color={color} />}
-                <div className="flight-readouts">
-                  {hSpd !== null && <SpeedReadout label="Ground speed" value={hSpd} limit={MAX_SPEED} color={color} />}
-                  {vSpd !== null && <SpeedReadout label="Vertical speed" value={vSpd} limit={MAX_VSPEED} signed color={color} />}
-                </div>
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-};
-
-export default AttitudeIndicatorPanel;
+    <div className="flight-overlay-help"><span>{tracks.length} topics · Hover, focus or tap a source to highlight it</span><span>Line &amp; marker identify each source</span></div>
+    <div className="flight-readout-scroll">
+      <table className="flight-readout-table">
+        <thead><tr><th scope="col">Source</th><th scope="col">Roll °</th><th scope="col">Pitch °</th><th scope="col">Heading °</th><th scope="col">Ground m/s</th><th scope="col">Vertical m/s</th><th scope="col">Frame</th></tr></thead>
+        <tbody>{tracks.map(track => <tr className="flight-source-row" key={track.name} data-topic={track.name} data-vehicle={track.style.groupKey} style={nightInk(track)} data-highlighted={active === track.name ? 'true' : undefined}>
+          <th scope="row"><button type="button" className="flight-source-highlight" aria-label={`Highlight ${track.name}`} aria-pressed={pinned === track.name} title={track.name}
+            onMouseEnter={() => setHovered(track.name)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(track.name)} onBlur={() => setHovered(null)}
+            onClick={() => setPinned(pinned === track.name ? null : track.name)} onKeyDown={event => { if (event.key === 'Escape') { setPinned(null); setHovered(null); } }}>
+            <VehicleTag name={track.name} /><TopicSwatch name={track.name} /><span>{track.style.sourceLabel}</span>
+          </button></th>
+          {['roll', 'pitch', 'heading', 'ground', 'vertical'].map(metric => <td key={metric} data-metric={metric}>{formatReadout(track[metric], ['ground', 'vertical'].includes(metric) ? 2 : 1)}</td>)}
+          <td className="flight-frame-cell" title={track.frame}>{track.waiting ? 'Waiting' : track.frame}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+  </Panel>;
+}

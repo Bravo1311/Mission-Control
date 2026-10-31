@@ -6,6 +6,8 @@ import { performanceProfile, loadPerformancePreference, validPerformancePreferen
 import { defaultBridgeUrl } from '../lib/connectionConfig.js';
 import { createTelemetryUpdates } from '../lib/telemetryUpdates.js';
 import { inferPanelType } from '../lib/inferPanelType.js';
+import { WorkspaceActivityContext } from './workspaceActivity.js';
+import { executeRosControl } from '../lib/missionControls.js';
 
 const TelemetryContext = createContext();
 
@@ -15,9 +17,16 @@ const idle = { subscribe: () => () => {}, snapshot: () => 0 };
 // eslint-disable-next-line react-refresh/only-export-components
 export const useTelemetry = (period = 0) => {
     const context = useContext(TelemetryContext);
-    const channel = period ? context.updates.channel(Math.max(period, context.performance.instrumentMs)) : idle;
+    const active = useContext(WorkspaceActivityContext);
+    const channel = period && active ? context.updates.channel(Math.max(period, context.performance.instrumentMs)) : idle;
     useSyncExternalStore(channel.subscribe, channel.snapshot, channel.snapshot);
     return context;
+};
+
+export const TelemetryScope = ({ names, children }) => {
+    const context = useContext(TelemetryContext);
+    const selected = names ? context.selected.filter(topic => names.includes(topic.name)) : context.selected;
+    return <TelemetryContext.Provider value={{ ...context, selected }}>{children}</TelemetryContext.Provider>;
 };
 
 export const TelemetryProvider = ({ children, bridgeUrl = defaultBridgeUrl(window.location) }) => {
@@ -39,16 +48,19 @@ export const TelemetryProvider = ({ children, bridgeUrl = defaultBridgeUrl(windo
         try { localStorage.setItem(PERFORMANCE_STORAGE_KEY, value); } catch { /* session only */ }
     };
     const [status, setStatus] = useState('disconnected');
+    const [activeBridgeUrl, setActiveBridgeUrl] = useState(bridgeUrl);
     const [selected, setSelected] = useState([]);
     const [available, setAvailable] = useState([]);
     const [sensorTransport, setSensorTransport] = useState('cbor');
-    const activePreviews = useRef(new Set());
+    const activePreviews = useRef(new Map());
     const [previewRevision, setPreviewRevision] = useState(0);
     const registerPreview = useCallback(name => {
-        activePreviews.current.add(name);
+        activePreviews.current.set(name, (activePreviews.current.get(name) || 0) + 1);
         setPreviewRevision(n => n + 1);
         return () => {
-            activePreviews.current.delete(name);
+            const count = activePreviews.current.get(name) || 0;
+            if (count <= 1) activePreviews.current.delete(name);
+            else activePreviews.current.set(name, count - 1);
             setPreviewRevision(n => n + 1);
         };
     }, []);
@@ -72,6 +84,7 @@ export const TelemetryProvider = ({ children, bridgeUrl = defaultBridgeUrl(windo
 
     const connect = (url) => {
         disconnect();
+        setActiveBridgeUrl(url);
         try {
             const target = new URL(url);
             setPreviewConnection(target.host === window.location.host && target.pathname === '/rosbridge/preview');
@@ -204,7 +217,7 @@ export const TelemetryProvider = ({ children, bridgeUrl = defaultBridgeUrl(windo
     }, []);
 
     const value = {
-        bridgeUrl,
+        bridgeUrl: activeBridgeUrl,
         performance: profile,
         hostCameraPreview: status === 'connected' && previewConnection && performanceMode === 'mobile',
         performancePreference,
@@ -217,6 +230,7 @@ export const TelemetryProvider = ({ children, bridgeUrl = defaultBridgeUrl(windo
         status,
         connect,
         disconnect,
+        executeControl: control => executeRosControl(rosRef.current, control),
         available,
         selected,
         addTopic,

@@ -1,12 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useContext, useEffect } from 'react';
 import { useTelemetry } from '../context/telemetryContext.jsx';
 import { pos, orientation, velocityEnu, plotLayout } from '../lib/plotHelpers.js';
 import { topicStyle, TOPIC_PLOT_DASHES } from '../lib/topicStyles.js';
 import TopicSwatch from './topicSwatch.jsx';
 import VehicleTag from './vehicleTag.jsx';
+import { PanelActionsContext, usePanelPreference } from '../context/panelActions.js';
+import { useNightPanelMode } from '../lib/useNightMode.js';
 import ResponsivePlot from './responsivePlot.jsx';
 import { chooseComparison } from '../lib/comparisonRoles.js';
 import Panel from './panel.jsx';
+import { AUTO_ALERTS_ENABLED } from '../lib/alertPolicy.js';
 
 const MAX_PAIR_GAP_S = 0.5; // longest truth interval we'll interpolate across before treating it as an outage
 
@@ -128,14 +131,16 @@ const StatTile = ({ label, value, metric }) => (
   </div>
 );
 
-const ErrorPanel = () => {
+const ErrorPanel = ({ monitorOnly = false }) => {
+  const night = useNightPanelMode() !== 'off';
+  const actions = useContext(PanelActionsContext);
   const { selected, classify, getBuffer } = useTelemetry(250);
   const trajTopics = selected.filter((t) => classify(t.name) === 'trajectory');
   const names = trajTopics.map((t) => t.name);
 
-  const [metricKey, setMetricKey] = useState('pos');
-  const [truthName, setTruthName] = useState(null);
-  const [estimateName, setEstimateName] = useState(null);
+  const [metricKey, setMetricKey] = usePanelPreference('metric', 'pos');
+  const [truthName, setTruthName] = usePanelPreference('reference', null);
+  const [estimateName, setEstimateName] = usePanelPreference('estimate', null);
 
   // Re-pick defaults whenever the current selection stops making sense — a
   // topic was deselected, or this is the first time two are available —
@@ -163,7 +168,10 @@ const ErrorPanel = () => {
     return pairedErrors(truthBuffer, estimateBuffer);
   }, [truthBuffer, estimateBuffer, truthVersion, estimateVersion]);
 
-  if (trajTopics.length < 2 || !truthName || !estimateName) return null;
+  const critical = AUTO_ALERTS_ENABLED && trajTopics.length >= 2 && criticalRecently(all);
+  useEffect(() => { actions?.reportAlert(critical ? 'danger' : undefined, 'Estimation error'); }, [actions, critical]);
+
+  if (monitorOnly || trajTopics.length < 2 || !truthName || !estimateName) return null;
 
   const metric = METRICS[metricKey];
   const { t, v: err } = all[metricKey];
@@ -179,10 +187,11 @@ const ErrorPanel = () => {
     fill: 'tozeroy', fillcolor: estimateStyle.fill,
   }];
   const layout = plotLayout({
+    font: { color: night ? '#90ae8d' : '#a0b1c2', size: 11 },
     uirevision: `${truthName}:${estimateName}:${metricKey}`,
     margin: { l: 60, r: 22, t: 18, b: 48 },
-    xaxis: { title: { text: 'Elapsed time (s)' }, gridcolor: '#2b3643', zeroline: false },
-    yaxis: { title: { text: metric.yTitle }, gridcolor: '#2b3643', rangemode: 'tozero', zerolinecolor: '#465362' },
+    xaxis: { title: { text: 'Elapsed time (s)' }, gridcolor: night ? '#18251a' : '#2b3643', zeroline: false },
+    yaxis: { title: { text: metric.yTitle }, gridcolor: night ? '#18251a' : '#2b3643', rangemode: 'tozero', zerolinecolor: night ? '#304633' : '#465362' },
   });
 
   return (
@@ -192,7 +201,8 @@ const ErrorPanel = () => {
       subtitle="Time-aligned reference and estimate comparison"
       icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 4v16h16M7 14l4-5 4 3 5-7"/><path d="M7 17h13" strokeDasharray="2 2"/></svg>}
       padded
-      alert={criticalRecently(all) ? 'danger' : undefined}
+      alert={critical ? 'danger' : undefined}
+      sources={[truthName, estimateName]}
       controls={
         <>
           <div className="segmented" role="tablist">

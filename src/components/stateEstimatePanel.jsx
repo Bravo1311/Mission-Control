@@ -5,12 +5,13 @@ import TopicSwatch from './topicSwatch.jsx';
 import ThreeTrajectoryViewer from './threeTrajectoryViewer.jsx';
 import Panel from './panel.jsx';
 import VehicleTag from './vehicleTag.jsx';
+import { usePanelPreference } from '../context/panelActions.js';
 
 const SOURCE_ORDER = ['imu', 'gps', 'fusion', 'odometry', 'reference', 'other'];
 
 export default function StateEstimatePanel() {
   const { selected, classify, getBuffer, performance: profile } = useTelemetry();
-  const [chosenMode, setMode] = useState(null);
+  const [chosenMode, setMode] = usePanelPreference('projection', null);
   const mode = chosenMode || (profile.mode === 'mobile' ? '2d' : '3d');
   const [fitToken, setFitToken] = useState(0);
   const [viewInfo, setViewInfo] = useState(null);
@@ -25,7 +26,7 @@ export default function StateEstimatePanel() {
   for (const tracks of groups.values()) tracks.sort((a, b) => SOURCE_ORDER.indexOf(a.style.sourceKind) - SOURCE_ORDER.indexOf(b.style.sourceKind)
     || a.style.sourceLabel.localeCompare(b.style.sourceLabel, undefined, { numeric: true }));
   const number = value => Number(value.toPrecision(5)).toString();
-  return <Panel className="trajectory-panel" title="Trajectory" subtitle="Position tracks in topic coordinates" icon={
+  return <Panel className="trajectory-panel" sources={topics.map(topic => topic.name)} title="Trajectory" subtitle="Position tracks in topic coordinates" icon={
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m4 17 6 3 10-6V7L14 4 4 10zM4 10l6 3 10-6M10 13v7"/><path d="m7 15 5-4 5 1"/></svg>
   } controls={<>
     <div className="segmented" role="tablist" aria-label="Trajectory projection">
@@ -45,11 +46,6 @@ export default function StateEstimatePanel() {
             </span>)}
           </div>
         </div>)}
-      </div>
-      <div className="trajectory-legend-key">
-        <span>Color = vehicle · Shade &amp; line = source</span>
-        <span>Fusion: solid · IMU: dotted · GPS: dashed</span>
-        <span className="trajectory-marker-key"><i />Latest position</span>
       </div>
       <ThreeTrajectoryViewer topics={topics} getBuffer={getBuffer} mode={mode} fitToken={fitToken} onViewInfo={updateInfo} />
       <div className="trajectory-status">

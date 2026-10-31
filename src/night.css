@@ -1,100 +1,144 @@
-/* ---------- Night panel ----------
-   Modeled on the Saab night-panel idea (itself borrowed from aircraft):
-   switch off everything except what you actually fly by, keep it in a
-   dark-adapted red so your eyes aren't ruined, and let anything that needs
-   attention relight itself.
-
-   All driven by <html data-night="on"> (see lib/useNightMode.js). Panels
-   opt in through two attributes set by <Panel>:
-     data-keep-lit   always visible (the flight instruments)
-     data-alert      relit because something is wrong ('danger')           */
-
-.panel-body,
-.panel-fill,
-.panel-header,
-.panel,
-.app-header .brand,
-.app-header .btn,
-.status-pill {
-  transition: opacity .5s ease, filter .5s ease, border-color .5s ease, background-color .5s ease;
-}
-
+/* Night changes illumination. Focus independently controls blanking.
+   Topic hues and the normal workspace layout are preserved. */
 :root[data-night='on'] {
   --bg: #000;
-  --bg-raised: #030202;
-  --panel: #050303;
-  --panel-2: #020101;
-  --border: #1d100c;
-  --border-strong: #2e1913;
+  --bg-raised: #020502;
+  --panel: #000;
+  --panel-2: #050c05;
+  --border: #142719;
+  --border-strong: #304e34;
+  --text: #a0e69b;
+  --text-dim: #78ad74;
+  --text-faint: #547950;
+  --accent: #8ae87b;
+  --accent-strong: #acfa99;
+  --accent-bg: rgba(138,232,123,.04);
+  --accent-border: rgba(138,232,123,.30);
+  --success: #78977c;
+  --success-bg: rgba(120,151,124,.07);
+  --warning: #c29a58;
+  --warning-bg: rgba(194,154,88,.08);
+  --danger: #d07665;
+  --danger-bg: rgba(208,118,101,.08);
+  --dial-face: #000;
+  --dial-sky: #010501;
+  --dial-ground: #000;
+  --dial-ring: #396638;
+  --dial-tick: #75ba68;
+  --dial-label: #a0e18a;
+  --dial-reference: #d3f6b9;
+}
+:root[data-night='on'] body { background-image: none; }
+:root[data-night='on'] .app-header { background: #000; border-color: var(--border); }
+:root[data-night='on'] .brand-title { color: var(--text-dim); }
+:root[data-night='on'] .brand-subtitle { display: none; }
+:root[data-night='on'] .brand-mark { width: 24px; height: 24px; }
+:root[data-night='on'] .brand-mark::before { width: 12px; left: 5px; top: 10px; height: 1px; }
+:root[data-night='on'] .brand-mark::after { height: 12px; top: 5px; left: 10px; width: 1px; }
+:root[data-night='on'] .app-header .btn { background: transparent !important; color: var(--text-dim) !important; border-color: var(--border-strong) !important; box-shadow: none !important; }
+:root[data-night='on'] .app-header .night-toggle { color: var(--accent-strong) !important; border-color: var(--accent-border) !important; }
+:root[data-night='on'] .status-pill { background: transparent; }
+:root[data-night='on'] .status-dot { animation: none; }
+:root[data-night='on'] .status-success { color: var(--success); border-color: var(--border); }
+:root[data-night='on'] .count-badge { background: var(--panel-2); color: var(--text-dim); }
+:root[data-night='on'] .mission-overview { display: none; }
+:root[data-night='on'] .app-main { padding-top: 12px; }
+:root[data-night='on'] .grid-toolbar { padding: 6px 0; border: 0; }
+:root[data-night='on'] .hidden-panels-toggle { min-height: 30px; padding: 5px 0; border: 0; background: transparent; font: 10px var(--mono); color: var(--text-faint); }
+:root[data-night='on'] .hidden-panel-count { background: transparent; }
+:root[data-night='on'] .grid-hint { display: none; }
+:root[data-night='on'] .panel { background: var(--panel); border-color: var(--border); }
+:root[data-night='on'] .react-grid-item { transition: none !important; }
+:root[data-night='on'] .panel-header { background: var(--panel); }
+:root[data-night='on'] .panel-subtitle { color: var(--text-faint); }
+:root[data-night='on'] .panel-icon { background: transparent; color: var(--accent); }
+:root[data-night='on'] .panel-fill { opacity: var(--night-brightness, .75); }
+:root[data-focus='on'] .panel[data-night-state='standby'] { background: #000; border-color: transparent; border-top-color: #142719; border-radius: 0; }
+:root[data-focus='on'] .panel[data-night-state='standby'] .panel-header { min-height: 50px; padding: 8px 12px; background: #000; border: 0; }
+:root[data-focus='on'] .panel[data-night-state='standby'] .panel-title { color: var(--text-dim); font: 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+:root[data-focus='on'] .panel[data-night-state='standby'] .panel-icon { display: none; }
+:root[data-focus='on'] .panel[data-night-state='standby'] .night-panel-toggle { border-color: transparent; background: transparent; color: var(--text-dim); }
+:root[data-focus='on'] .panel[data-night-state='standby'] .night-panel-toggle:hover { border-color: var(--border-strong); color: var(--accent-strong); }
+:root[data-focus='on'] .panel[data-night-state='standby'] .panel-subtitle,
+:root[data-focus='on'] .panel[data-night-state='standby'] .panel-secondary-controls { display: none; }
+:root[data-focus='on'] .panel[data-night-state='standby'] .panel-body { visibility: hidden; pointer-events: none; }
+:root[data-night='on'] .flight-state-panel { border-color: transparent; border-top-color: #27432b; border-radius: 0; }
+:root[data-night='on'] .panel[data-night-state='alert'] { border-color: var(--danger); }
+:root[data-night='on'] .panel[data-alert='warning'] { border-color: var(--warning); }
+:root[data-night='on'] .panel[data-alert='warning'] .night-alert-label { color: var(--warning); border-color: var(--warning); }
+:root[data-focus='on'] .panel-drag-handle,
+:root[data-focus='on'] .react-resizable-handle { display: none; }
+:root[data-night='on'] .flight-state-panel .panel-header { padding: 14px 10px 10px; min-height: 48px; border: 0; }
+:root[data-night='on'] .flight-state-panel .panel-title { font: 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent-strong); }
+:root[data-night='on'] .flight-state-panel .panel-subtitle,
+:root[data-night='on'] .flight-state-panel .panel-icon { display: none; }
+:root[data-night='on'] .flight-state-panel .panel-fill-padded { padding: 8px 16px 16px; }
+:root[data-night='on'] .flight-overlay-gauges { grid-template-columns: 1fr 1fr; gap: 22px 28px; align-items: start; padding: 12px 0 20px; }
+:root[data-night='on'] .flight-overlay-instrument h3,
+:root[data-night='on'] .flight-overlay-speed h3 { color: var(--text-dim); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .16em; margin-bottom: 12px; }
+:root[data-night='on'] .flight-overlay-instrument > svg { max-width: 260px; }
+:root[data-night='on'] .flight-overlay-count,
+:root[data-night='on'] .flight-overlay-help { display: none; }
+:root[data-night='on'] .flight-night-markings { display: inline; }
+:root[data-night='on'] .flight-overlay-speeds { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; gap: 28px; }
+:root[data-night='on'] .flight-overlay-speed > svg { max-height: none; }
+:root[data-night='on'] .flight-overlay-speed h3 { margin-bottom: 0; }
+:root[data-night='on'] .flight-readout-scroll { border: 0; border-top: 1px solid var(--border); border-radius: 0; min-height: 100px; max-height: 245px; }
+:root[data-night='on'] .flight-readout-table { min-width: 520px; font-size: 12px; }
+:root[data-night='on'] .flight-readout-table thead { background: #000; }
+:root[data-night='on'] .flight-readout-table th,
+:root[data-night='on'] .flight-readout-table td { height: 32px; padding: 7px 8px; border-bottom-color: #0d1c10; }
+:root[data-night='on'] .flight-readout-table thead th { font: 9px var(--mono); color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+:root[data-night='on'] .flight-readout-table tbody th { padding: 0 8px; }
+:root[data-night='on'] .flight-readout-table th:last-child,
+:root[data-night='on'] .flight-readout-table td:last-child,
+:root[data-night='on'] .flight-source-highlight .vehicle-tag { display: none; }
+:root[data-night='on'] .flight-source-highlight { font-size: 11px; color: var(--text); }
+:root[data-night='on'] .flight-source-row[data-highlighted='true'] { background: #081609; }
+:root[data-night='on'] .flight-readout-table td { color: var(--text); }
+:root[data-night='on'] .vehicle-tag { background: #000; }
 
-  --text: #c4553a;
-  --text-dim: #7d3a2b;
-  --text-faint: #4a2219;
-
-  --accent: #d9573a;
-  --accent-strong: #ef7656;
-  --accent-bg: rgba(217, 87, 58, 0.1);
-  --accent-border: rgba(217, 87, 58, 0.35);
-
-  --success: #4c8a5a;
-  --success-bg: rgba(76, 138, 90, 0.12);
-  --warning: #d08a1e;
-  --warning-bg: rgba(208, 138, 30, 0.14);
-  --danger: #ff4b3a;
-  --danger-bg: rgba(255, 75, 58, 0.14);
+:root[data-night='on'] .chat-launcher { background: var(--panel); border-color: var(--border); box-shadow: none; }
+:root[data-night='on'] .chat-log,
+:root[data-night='on'] .chat-composer textarea { background: #060a07; }
+:root[data-night='on'] .sensor-settings-popover { box-shadow: none; }
+:root[data-night='on'] .sensor-caption,
+:root[data-night='on'] .sensor-sourcebar,
+:root[data-night='on'] .error-comparison,
+:root[data-night='on'] .stat-tile-row,
+:root[data-night='on'] .trajectory-legend,
+:root[data-night='on'] .trajectory-status { background: var(--panel); }
+:root[data-night='on'] .offcanvas-backdrop { background: #000; }
+.night-dimmer { display: inline-flex; align-items: center; gap: 8px; padding: 4px 9px; color: var(--text-dim); font: 11px var(--sans); border-left: 1px solid var(--border); }
+.night-dimmer input { width: 90px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+.night-dimmer output { min-width: 30px; color: var(--text-faint); font: 10px var(--mono); }
+.night-alert-label { padding: 3px 6px; border: 1px solid var(--danger); border-radius: 3px; color: var(--danger); font-size: 11px; }
+:root[data-night='on'] .header-actions { flex-wrap: wrap; }
+@container (min-width: 1000px) {
+  :root[data-night='on'] .flight-overlay-gauges { grid-template-columns: 1fr 1fr minmax(260px, 1.1fr); align-items: center; }
+  :root[data-night='on'] .flight-overlay-speeds { grid-column: auto; grid-template-columns: 1fr; }
+}
+@container (max-width: 480px) {
+  :root[data-night='on'] .flight-overlay-gauges { gap: 20px 14px; }
+  :root[data-night='on'] .flight-overlay-speeds { grid-template-columns: 1fr; gap: 10px; }
+  :root[data-night='on'] .flight-overlay-speed > svg { max-height: 85px; }
+  :root[data-night='on'] .flight-state-panel .panel-fill-padded { padding-left: 8px; padding-right: 8px; }
+}
+@media (max-width: 600px) {
+  :root[data-night='on'] .app-header { padding: 10px 12px; gap: 8px; }
+  :root[data-night='on'] .brand-title { font-size: 14px; }
+  :root[data-night='on'] .header-actions { gap: 6px; }
+  :root[data-night='on'] .app-header .btn { min-height: 30px; padding: 4px 10px; font-size: 12px; }
+  .night-dimmer { padding: 2px 6px; gap: 6px; }
+  .night-dimmer input { width: 70px; }
+  :root[data-night='on'] .panel { scroll-margin-top: 156px; }
+  :root[data-focus='on'] .panel[data-night-state='standby'] .panel-header { padding: 6px 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-night='on'] * { transition: none !important; }
 }
 
-:root[data-night='on'] body {
-  background-image: none;
-}
-
-/* ---- header: dark until something is wrong ---- */
-:root[data-night='on'] .app-header {
-  background: #000;
-  border-bottom-color: #0f0807;
-}
-:root[data-night='on'] .app-header .brand { opacity: .35; }
-:root[data-night='on'] .app-header .btn { opacity: .4; }
-:root[data-night='on'] .app-header .btn:hover,
-:root[data-night='on'] .app-header .btn:focus { opacity: 1; }
-:root[data-night='on'] .app-header .night-toggle.is-on { opacity: .9; }
-/* a healthy connection goes quiet; a dropped or pending one stays lit, like a warning lamp */
-:root[data-night='on'] .status-pill.status-success { opacity: .2; }
-
-/* ---- panels ---- */
-:root[data-night='on'] .panel {
-  background: #000;
-}
-
-/* off: not an instrument, and not alarming */
-:root[data-night='on'] .panel:not([data-keep-lit]):not([data-alert]) {
-  border-color: #0c0706;
-}
-:root[data-night='on'] .panel:not([data-keep-lit]):not([data-alert]) .panel-body {
-  opacity: 0;
-  pointer-events: none;
-}
-:root[data-night='on'] .panel:not([data-keep-lit]):not([data-alert]) .panel-header {
-  opacity: .25;
-}
-
-/* always lit: the flight instruments, collapsed to dark-adapted red */
-:root[data-night='on'] .panel[data-keep-lit] .panel-fill {
-  filter: grayscale(1) brightness(.55) sepia(1) hue-rotate(-50deg) saturate(4);
-}
-
-/* relit by an alert: keeps its own colours (a red/amber/green warning has to
-   stay distinguishable) but toned down so it doesn't blind you */
-:root[data-night='on'] .panel[data-alert] .panel-body {
-  filter: brightness(.7) saturate(.75);
-}
-:root[data-night='on'] .panel[data-alert='danger'] {
-  border-color: var(--danger);
-}
-
-/* Plotly bakes its background colour in as a literal, so it can't follow the
-   night palette; tint the chart itself so it reads as part of the red panel
-   instead of a blue-grey block. */
-:root[data-night='on'] .panel[data-alert] .js-plotly-plot {
-  filter: grayscale(1) sepia(1) hue-rotate(-50deg) saturate(3) brightness(.6);
-}
+:root[data-night='on'] .leaflet-tile-pane { filter: grayscale(1) invert(1) brightness(.65) contrast(1.1); }
+:root[data-night='on'] .sensor-panel .sensor-canvas { opacity: var(--night-camera-brightness, .8); }
+:root[data-night='on'] .panel[data-alert] .panel-fill { opacity: max(.8, var(--night-brightness, .75)); }
+:root[data-night='on'] .app-header .focus-toggle[aria-pressed='true'] { color: var(--accent-strong) !important; border-color: var(--accent-border) !important; }

@@ -3,9 +3,9 @@ export const MAX_CHAT_MESSAGES = 60;
 export const MAX_CHAT_CONTENT = 16000;
 export const MAX_CHAT_INPUT = 4000;
 
-function loadMessages(storage) {
+function loadMessages(storage, storageKey) {
   try {
-    const raw = storage?.getItem(CHAT_STORAGE_KEY);
+    const raw = storage?.getItem(storageKey);
     if (!raw || raw.length > 2 * 1024 * 1024) return [];
     const saved = JSON.parse(raw);
     if (saved.version !== 1 || !Array.isArray(saved.messages)) return [];
@@ -29,18 +29,18 @@ function loadMessages(storage) {
  * A streaming adapter calls onDelta(text), then resolves. No transport is
  * installed by default; offline messages are local drafts, never auto-replayed.
  */
-export function createAgentSession({ storage = null, transport = null } = {}) {
+export function createAgentSession({ storage = null, transport = null, storageKey = CHAT_STORAGE_KEY } = {}) {
   const listeners = new Set();
   let adapter = transport;
   let active = null;
-  let snapshot = { messages: loadMessages(storage), pending: false, configured: !!adapter?.send, historySaved: !!storage };
+  let snapshot = { messages: loadMessages(storage, storageKey), pending: false, configured: !!adapter?.send, historySaved: !!storage };
   const notify = (messages = snapshot.messages, pending = snapshot.pending, persist = true) => {
     let historySaved = snapshot.historySaved;
     messages = messages.slice(-MAX_CHAT_MESSAGES);
     if (persist) {
       try {
         if (!storage) throw new Error('No storage');
-        storage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ version: 1, messages }));
+        storage.setItem(storageKey, JSON.stringify({ version: 1, messages }));
         historySaved = true;
       } catch { historySaved = false; }
     }

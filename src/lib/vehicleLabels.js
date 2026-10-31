@@ -32,7 +32,11 @@ export function placeVehicleLabels(anchors, width, height) {
         * Math.max(0, Math.min(box.y + h + 5, other.y + other.height) - Math.max(box.y - 5, other.y)), 0);
       return overlap * 10000 + Math.hypot(box.x + w / 2 - anchor.x, box.y + h / 2 - anchor.y);
     };
-    const box = candidates.sort((a, b) => score(a) - score(b))[0] || { x: pad, y: top };
+    let box = { x: pad, y: top }, bestScore = Infinity;
+    for (const candidate of candidates) {
+      const value = score(candidate);
+      if (value < bestScore) { bestScore = value; box = candidate; }
+    }
     placed.push({ ...anchor, ...box, width: w, height: h, anchorX: anchor.x, anchorY: anchor.y });
   }
   return placed;
@@ -45,34 +49,59 @@ export function createVehicleLabels(container) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('vehicle-label-leaders'); svg.setAttribute('aria-hidden', 'true');
   container.append(svg);
+  const sizes = new ResizeObserver(entries => {
+    for (const entry of entries) {
+      const node = nodes.get(entry.target.dataset.vehicle);
+      if (!node || node.tag !== entry.target) continue;
+      const size = entry.borderBoxSize?.[0];
+      node.width = size?.inlineSize ?? entry.target.offsetWidth;
+      node.height = size?.blockSize ?? entry.target.offsetHeight;
+    }
+  });
   return {
     update(records, width, height) {
       const anchors = vehicleAnchors(records.filter(record => record.visible !== false));
       const keys = new Set(anchors.map(record => record.style.groupKey));
-      for (const [key, node] of nodes) if (!keys.has(key)) { node.tag.remove(); node.line.remove(); nodes.delete(key); }
-      const measured = anchors.map(record => {
+      for (const [key, node] of nodes) if (!keys.has(key)) { sizes.unobserve(node.tag); node.tag.remove(); node.line.remove(); nodes.delete(key); }
+      // Finish all DOM writes before measuring newly created/changed labels.
+      // Existing labels need no synchronous size read during live movement.
+      for (const record of anchors) {
         const key = record.style.groupKey;
         let node = nodes.get(key);
         if (!node) {
           const tag = document.createElement('div'); tag.className = 'vehicle-floating-tag'; tag.dataset.vehicle = key;
           const name = document.createElement('strong'), source = document.createElement('span'); tag.append(name, source); container.append(tag);
           const line = document.createElementNS(svg.namespaceURI, 'line'); svg.append(line);
-          node = { tag, name, source, line }; nodes.set(key, node);
+          node = { tag, name, source, line }; nodes.set(key, node); sizes.observe(tag);
         }
-        node.name.textContent = record.style.groupLabel; node.source.textContent = record.style.sourceLabel;
-        node.tag.title = record.name; node.tag.dataset.topic = record.name;
-        node.tag.style.setProperty('--vehicle-color', record.style.groupColor); node.line.style.stroke = record.style.groupColor;
-        node.tag.style.maxWidth = `${Math.max(1, width - 16)}px`;
-        return { ...record, width: node.tag.offsetWidth, height: node.tag.offsetHeight };
+        if (node.groupLabel !== record.style.groupLabel || node.sourceLabel !== record.style.sourceLabel) {
+          node.groupLabel = record.style.groupLabel; node.sourceLabel = record.style.sourceLabel;
+          node.name.textContent = node.groupLabel; node.source.textContent = node.sourceLabel;
+          node.width = node.height = null;
+        }
+        if (node.topic !== record.name) { node.topic = record.name; node.tag.title = record.name; node.tag.dataset.topic = record.name; }
+        if (node.color !== record.style.groupColor) {
+          node.color = record.style.groupColor;
+          node.tag.style.setProperty('--vehicle-color', node.color); node.line.style.stroke = node.color;
+        }
+        const maxWidth = `${Math.max(1, width - 16)}px`;
+        if (node.maxWidth !== maxWidth) { node.maxWidth = maxWidth; node.tag.style.maxWidth = maxWidth; node.width = node.height = null; }
+      }
+      const measured = anchors.map(record => {
+        const node = nodes.get(record.style.groupKey);
+        node.width ??= node.tag.offsetWidth; node.height ??= node.tag.offsetHeight;
+        return { ...record, width: node.width, height: node.height };
       });
       for (const record of placeVehicleLabels(measured, width, height)) {
-        const { tag, line } = nodes.get(record.style.groupKey);
-        tag.style.transform = `translate(${record.x}px, ${record.y}px)`;
-        line.setAttribute('x1', record.anchorX); line.setAttribute('y1', record.anchorY);
-        line.setAttribute('x2', Math.max(record.x, Math.min(record.x + record.width, record.anchorX)));
-        line.setAttribute('y2', Math.max(record.y, Math.min(record.y + record.height, record.anchorY)));
+        const node = nodes.get(record.style.groupKey);
+        const transform = `translate(${record.x}px, ${record.y}px)`;
+        if (node.transform !== transform) { node.tag.style.transform = transform; node.transform = transform; }
+        const points = { x1: record.anchorX, y1: record.anchorY,
+          x2: Math.max(record.x, Math.min(record.x + record.width, record.anchorX)),
+          y2: Math.max(record.y, Math.min(record.y + record.height, record.anchorY)) };
+        for (const [key, value] of Object.entries(points)) if (node[key] !== value) { node.line.setAttribute(key, value); node[key] = value; }
       }
     },
-    clear() { for (const node of nodes.values()) { node.tag.remove(); node.line.remove(); } nodes.clear(); svg.remove(); },
+    clear() { sizes.disconnect(); for (const node of nodes.values()) { node.tag.remove(); node.line.remove(); } nodes.clear(); svg.remove(); },
   };
 }

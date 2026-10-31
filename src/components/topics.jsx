@@ -20,10 +20,10 @@ const STATUS_LABEL = {
     error: 'Connection error',
 };
 
-const Topics = () => {
+const Topics = ({ workspace = 'analysis', onWorkspaceChange }) => {
     const [isOpen, setIsOpen] = useState(false)
     const tele = useTelemetry(isOpen ? 500 : 0)
-    const [night, toggleNight] = useNightMode()
+    const [night, toggleNight, brightness, setBrightness, focus, toggleFocus] = useNightMode()
     const [url, setUrl] = useState(tele.bridgeUrl);
     const toggle = () => setIsOpen(!isOpen)
     const [query, setQuery] = useState('')
@@ -56,6 +56,16 @@ const Topics = () => {
                 </div>
             </div>
 
+            <nav className="workspace-switch" role="tablist" aria-label="Workspace" onKeyDown={event => {
+                if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                event.preventDefault();
+                const next = workspace === 'analysis' ? 'mission' : 'analysis';
+                onWorkspaceChange?.(next);
+                event.currentTarget.querySelector(`#${next}-workspace-tab`)?.focus();
+            }}>
+                {[['analysis', 'Analysis'], ['mission', 'Mission control']].map(([key, label]) => <button key={key} id={`${key}-workspace-tab`} role="tab" aria-selected={workspace === key} aria-controls={`${key}-workspace`} tabIndex={workspace === key ? 0 : -1} onClick={() => onWorkspaceChange?.(key)}>{label}</button>)}
+            </nav>
+
             <div className={`status-pill status-${statusClass}`}>
                 <span className="status-dot" />
                 {STATUS_LABEL[tele.status] || tele.status}
@@ -66,11 +76,19 @@ const Topics = () => {
                     className={`btn-ghost night-toggle${night ? ' is-on' : ''}`}
                     size="sm"
                     aria-pressed={night}
-                    title="Night panel: everything goes dark except the flight instruments, and a panel relights only when it needs attention"
+                    title="Low-light styling for the whole dashboard; preserves panel visibility and layout"
                     onClick={toggleNight}
                 >
-                    Night
+                    {night ? 'Night on' : 'Night'}
                 </Button>
+                {workspace === 'analysis' && <Button className={`btn-ghost focus-toggle${focus ? ' is-on' : ''}`} size="sm" aria-pressed={focus}
+                    title="Focus: keep chosen panels illuminated; blank others without hiding alerts" onClick={toggleFocus}>
+                    {focus ? 'Focus on' : 'Focus'}
+                </Button>}
+                {night && <label className="night-dimmer">Dimmer
+                    <input type="range" min="40" max="100" step="1" value={brightness} aria-label="Night brightness" onChange={event => setBrightness(event.target.value)} />
+                    <output>{brightness}%</output>
+                </label>}
                 <Button className="btn-ghost" size="sm" onClick={tele.clearAll}>
                     Clear
                 </Button>

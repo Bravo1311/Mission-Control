@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { WorkspaceActivityContext } from '../context/workspaceActivity.js';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useTelemetry } from '../context/telemetryContext.jsx';
 import { createLatestFramePump } from '../lib/latestFrame.js';
 import Panel from './panel.jsx';
+import { useNightMode } from '../lib/useNightMode.js';
 import { topicStyle } from '../lib/topicStyles.js';
 import TopicSwatch from './topicSwatch.jsx';
 import VehicleTag from './vehicleTag.jsx';
+import { usePanelPreference } from '../context/panelActions.js';
+import { panelIsAwake } from '../lib/nightPanel.js';
 
 function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, registerPreview, requestedInterval }) {
   const canvasRef = useRef(null);
@@ -18,6 +22,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, 
   useEffect(() => {
     if (paused) return;
     const canvas = canvasRef.current;
+    const host = hostRef.current;
     const ctx = canvas.getContext('2d');
     let visible = false;
     let stopped = false;
@@ -66,7 +71,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, 
       clearTimeout(watchdog);
       const valid = pump.complete();
       try {
-        if (stopped || !valid || !visible || document.hidden) { pump.retry(); return; }
+        if (stopped || !valid || !visible || document.hidden || !panelIsAwake(host)) { pump.retry(); return; }
         if (data.error) {
           baseNote = '';
           clear(); report({ note: '', error: data.error }); return;
@@ -85,7 +90,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, 
     worker.onerror = () => fail('Sensor worker failed. Pause and resume to retry.');
     let unregister;
     const syncActivity = () => {
-      const active = visible && !document.hidden && document.documentElement.dataset.night !== 'on' && !stopped;
+      const active = visible && !document.hidden && panelIsAwake(host) && !stopped;
       if (active && !unregister) unregister = registerPreview(topic.name);
       else if (!active && unregister) { unregister(); unregister = null; }
     };
@@ -93,11 +98,12 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, 
     observer.observe(hostRef.current);
     document.addEventListener('visibilitychange', syncActivity);
     const nightObserver = new MutationObserver(syncActivity);
-    nightObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-night'] });
+    nightObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-night', 'data-focus'] });
+    if (host.closest('.panel')) nightObserver.observe(host.closest('.panel'), { attributes: true, attributeFilter: ['data-night-state'] });
     syncActivity();
     let empty = false;
     const update = () => {
-      if (stopped || document.hidden || !visible || document.documentElement.dataset.night === 'on') return;
+      if (stopped || document.hidden || !visible || !panelIsAwake(host)) return;
       if (!read().raw.length) {
         if (!empty) { clear(); report({ note: 'Waiting for a frame', error: '' }); empty = true; }
         return;
@@ -143,7 +149,7 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, 
       {info.error && <div className="sensor-message" role="status">{info.error}</div>}
       <div className="sensor-caption">
         <div className="sensor-frame-info">
-          <span className="sensor-state">{paused ? 'Display paused' : status !== 'connected' ? 'Disconnected' : 'Preview'}</span>
+          <span className="sensor-state">{paused ? 'Display paused' : status !== 'connected' ? 'Disconnected' : info.error ? 'Unavailable' : metrics?.incoming === 'Stalled' ? 'Stale · retained frame' : info.note === 'Waiting for a frame' ? 'Waiting' : 'Live preview'}</span>
           <span className="sensor-format" title={info.note}>{info.note}</span>
           {frameName && <span className="sensor-frame-name" title={`Coordinate frame: ${frameName}`}>{frameName}</span>}
         </div>
@@ -159,11 +165,13 @@ function SensorCanvas({ kind, topic, getBuffer, paused, range, status, profile, 
 }
 
 export default function SensorPanel({ kind }) {
+  const workspaceActive = useContext(WorkspaceActivityContext);
+  const [night, , , , , , cameraBrightness, setCameraBrightness] = useNightMode();
   const { selected, classify, getBuffer, status, sensorTransport, setSensorTransport, registerPreview, requestedSensorInterval, hostCameraPreview, performance: profile } = useTelemetry();
   const topics = selected.filter(t => classify(t.name) === kind);
-  const [chosen, setChosen] = useState('');
-  const [paused, setPaused] = useState(false);
-  const [range, setRange] = useState(30);
+  const [chosen, setChosen] = usePanelPreference('source', '');
+  const [paused, setPaused] = usePanelPreference('paused', false);
+  const [range, setRange] = usePanelPreference('range', 30);
   const topic = topics.find(t => t.name === chosen) || topics[0];
   if (!topic) return null;
   const icon = kind === 'camera' ? (
@@ -178,6 +186,10 @@ export default function SensorPanel({ kind }) {
         <details className="sensor-settings">
           <summary aria-label={`${kind} settings`}>Settings</summary>
           <div className="sensor-settings-popover">
+            {kind === 'camera' && night && <label>Night image brightness
+              <input type="range" min="20" max="100" step="1" value={cameraBrightness} aria-label="Night camera brightness" onChange={event => setCameraBrightness(event.target.value)} />
+              <output>{cameraBrightness}%</output>
+            </label>}
             <label>Transport
               <select className="panel-select" aria-label={`${kind} transport`} value={sensorTransport} onChange={e => setSensorTransport(e.target.value)}>
                 <option value="cbor">Binary</option><option value="none">JSON compatibility</option>
@@ -202,7 +214,7 @@ export default function SensorPanel({ kind }) {
           </label>}
         </div>
         {profile.mode === 'mobile' && <p className="sensor-bandwidth-note">{kind === 'camera' && hostCameraPreview ? 'Mobile preview · images resized on host before transfer.' : 'Mobile link budget · large frames update more slowly.'}</p>}
-        <SensorCanvas key={topic.name} kind={kind} topic={topic} getBuffer={getBuffer} paused={paused} range={range} status={status} profile={profile} registerPreview={registerPreview} requestedInterval={requestedSensorInterval(topic.name, topic.type)} />
+        {workspaceActive && <SensorCanvas key={topic.name} kind={kind} topic={topic} getBuffer={getBuffer} paused={paused} range={range} status={status} profile={profile} registerPreview={registerPreview} requestedInterval={requestedSensorInterval(topic.name, topic.type)} />}
       </div>
     </Panel>
   );

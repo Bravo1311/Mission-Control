@@ -8,6 +8,40 @@ Connect through **Topics**, enter a rosbridge WebSocket URL, and select the topi
 
 Read [Networking from the beginning](docs/NETWORKING.md) for the laptop-to-phone communication path and [Change history](CHANGELOG.md) for the full LAN/mobile update.
 
+## Flight instruments and workspace panels
+
+Each drone gets its own **Flight state** panel, such as **Flight state · drone_1** and **Flight state · drone_2**. Within that panel, all of that drone's selected odometry/pose topics overlay on shared attitude and heading dials and ground/vertical-speed scales. Other drones stay in their own panels. Colored horizon lines, needles, source patterns, and marker shapes identify each topic. Hover, focus, or tap a source to highlight it within that drone's panel; press Escape to clear the highlight. The readout table gives exact values and frame names for each source. Panels can be moved, resized, hidden, and restored independently. Speed ranges expand independently for each drone. Missing orientation or velocity produces a blank reading and no corresponding marker. Values are the latest received per topic, without averaging, time alignment, or frame transformations; compare frame names when sources use different coordinate frames.
+
+For example, `/drone_1/odometry` (long dashes, hollow triangle) and `/drone_1/fusion/odom` (solid, filled diamond) are drawn simultaneously inside the **same attitude dial**, **same heading dial**, and **same speed scales** in drone 1's panel. Close or identical estimates may overlap; their patterns, markers, numeric readings, and source highlighting help distinguish them.
+
+Use the **minus button** in any panel header to move it into **Hidden panels**, above the workspace. Expand that drawer and select **Add back**, or **Restore all panels**. Hidden-panel choices persist in this browser, including across reloads. Hiding keeps your topic selections and retained telemetry; hidden visualizations release their rendering resources. Sensor source/pause/range settings, flight-overlay highlight, trajectory projection, and error-comparison settings are retained while hiding and restoring a panel. Saved panel sizes are kept. **Auto layout** resets positions and sizes independently of visibility. A panel can display again once a matching topic is selected.
+
+## Analysis and Mission control
+
+Use the **Analysis / Mission control** switch in the header. Analysis retains its existing panel layout, hidden-panel choices, projection settings, and comparison controls when switching views. The workspaces share the rosbridge connection, selected topics, and retained telemetry. Mission has a separate fixed layout and console history; it is loaded on first use. Inactive workspaces stop their high-rate React subscriptions, and inactive sensor views release their workers.
+
+Mission control provides a fleet selector, a central map/trajectory/flight/sensor view, target telemetry, a command dock, and an embedded local console. Selecting a vehicle sets the command namespace and telemetry readout. **Whole fleet** chooses between fleet and target position views. Readouts identify their source and coordinate frame; unavailable values remain blank. The HUD prefers an available fusion source, with a stable fallback. It does not infer arming state, flight mode, battery health, or mission completion from odometry.
+
+Choose **Add control** to configure a ROS service call or one-shot topic publication. Supply the control name, absolute endpoint, ROS type, and a JSON object request. The optional `{vehicle}` placeholder expands to the selected vehicle namespace with its original case. For example, `/{vehicle}/my_service` targets `/drone_1/my_service` when that namespace is selected. Endpoint names and request fields must match your robot; no arm/takeoff/land endpoints are guessed or preset.
+
+Clicking a control opens an **inline request review**. Nothing is sent until **Send request**. Disconnected controls are unavailable. Service replies and publications are recorded in a bounded command log; a publication is marked unconfirmed, and a timeout/disconnect reports an unknown outcome. Pending requests interrupted by reload are retained as unknown outcomes. There are no automatic retries or command replay on reconnect/reload. These controls support service calls and single publications, rather than continuous joystick/offboard streaming or a built-in ROS action client. Control definitions and the command log are saved locally in this browser.
+
+The **Mission console** supports `/help`, `/status`, `/topics`, and `/controls`. Ordinary text is saved as a local operational note. It is a deterministic local console, not a connected AI agent; it does not turn chat messages into vehicle commands. Mission console history is separate from Analysis's agent terminal. The existing agent transport contract remains available for a future configured adapter.
+
+## Night lighting and Focus
+
+**Night** applies low-light styling to the entire dashboard: black surfaces, subdued green interface markings, a dark map and 3D stage, and readable charts and instruments. It keeps all currently visible panels, their layout, topic selections, streams, and drone/source colors. Night no longer blanks panels or moves flight instruments to the top. The orange day theme returns when Night is off.
+
+The **Dimmer** adjusts panel illumination from 40–100% in fine steps (default 75%). Camera imagery has an additional **Night image brightness** slider under the camera panel's **Settings**, from 20–100% (default 80%). It affects image pixels only and combines with the master dimmer; changing brightness never alters ROS data or transport. Both settings are saved in this browser.
+
+**Focus** is a separate switch that works in either day or Night mode. In Focus, use **Show / Blank** in each panel header to choose which panels stay illuminated, including individual drone flight panels. Choices persist across Focus sessions, hiding/restoring panels, and reloads. Initially, flight panels are lit and other panels are blanked; enabling Night alone never activates Focus. Blank panels become compact standby headers with inert bodies, and camera/lidar previews suspend decoding under the existing background transport policy. Showing a sensor panel resumes its visible-preview budget. Focus temporarily arranges awake panels ahead of standby headers; switching it off restores the normal layout without overwriting saved positions. Normal layout editing remains available in Night, and is disabled while Focus is active.
+
+**Automatic alerts are currently disabled at the operator’s request.** High estimation errors do not open banners, wake blank panels, restore hidden panels, or move the view. Error values, plots, and severity colors remain available by opening the comparison panel manually. Hidden comparisons do not run a background alert monitor while this policy is disabled.
+
+Data panels show a compact reception status that expands into a per-topic list: **Live**, **Stale**, **Waiting**, **Connecting**, or **Disconnected**. Status refreshes even when messages stop. Stale means no reception for at least three seconds or approximately three observed message intervals, whichever is longer. Camera captions additionally distinguish a paused display, an unavailable preview, and a retained stale frame. Focus standby is intentional blanking; Hidden panels is the separate permanent visibility drawer. Status indicators describe receipt of data, not sensor correctness or synchronization.
+
+The workspace starts directly with its panels. Hidden panels and Auto layout share a compact toolbar; the redundant page title, counters, display-count row, and permanent source-style explanation have been removed. Floating drone labels cache their dimensions and batch DOM updates. Charts defer loading until visible and freeze off-screen drawing while error/alert monitoring continues. Reception badges share a low-rate clock and rerender only when status changes; Night dimming uses opacity without per-track glow filters.
+
 ## Running and checks
 
 ```sh
@@ -20,6 +54,8 @@ npm run preview
 ```
 
 Use the production preview when checking performance. `npm run test:browser` runs an isolated headless Chrome session against the built app and a mock rosbridge server; run `npm run build` first. It requires `google-chrome` on PATH, uses port 4189 for the preview and an ephemeral port for the bridge, and writes `/tmp/mission-sensor-preview.png`. It never connects to the robot. `npm run test:browser:dev` checks single-topic odometry selection, projection switches, and removal/reselection under the Vite development server and React StrictMode.
+
+For a repeatable synthetic multi-drone performance profile, build first and run `npm run test:performance`. It records browser main-thread time, layout work, and frame cadence while viewing trajectories, instruments, and error charts in day and Night modes. Results are written to `/tmp/mission-performance.json`. This isolated headless-browser workload is useful for comparisons, rather than a measurement of your phone or a live ROS deployment.
 
 ## Phone and local-network access
 
@@ -127,6 +163,6 @@ Decoding follows the ROS definitions for [Image](https://github.com/ros2/common_
 
 Sensor panels share a source row, a compact Settings menu for transport, and four status readouts: Display, Incoming, Decode and Payload. The automatic layout adapts camera/lidar proportions to the viewport and stacks displays on narrower screens. Drag or resize a panel to save a custom arrangement; Auto layout restores the defaults. The refreshed layout uses a new storage key; earlier arrangements remain stored under the previous key.
 
-Flight state groups each trajectory source into a card with attitude, heading, and digital ground/vertical speed readouts. Neutral scales use the shared topic color only for pointers and bars. The estimation panel requires distinct reference and estimate sources and provides an explicit swap control; display-band thresholds remain visual defaults.
+Flight state groups sources by drone, with each drone's estimates overlaid in its own panel. Neutral scales use the shared topic colors for horizons, needles, and markers. The estimation panel requires distinct reference and estimate sources and provides an explicit swap control; display-band thresholds remain visual defaults.
 
 The trajectory viewer shares a lightweight WebGL stage between orthographic 3D and top-down XY modes. Fit tracks frames the retained history; dragging or zooming retains manual camera control until you fit again. Thin lines show sampled histories, and fixed-size rings mark the newest positions. Grid spacing and its reference Z plane are listed beneath the view; moving the cursor over the stage reads X/Y at that grid plane. Coordinates remain in each topic's frame, without TF transforms. The renderer draws only when data, camera, size or visibility changes and disposes its graphics resources on mode changes/unmount.
