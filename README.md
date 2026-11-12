@@ -26,7 +26,7 @@ Choose **Add control** to configure a ROS service call or one-shot topic publica
 
 Clicking a control opens an **inline request review**. Nothing is sent until **Send request**. Disconnected controls are unavailable. Service replies and publications are recorded in a bounded command log; a publication is marked unconfirmed, and a timeout/disconnect reports an unknown outcome. Pending requests interrupted by reload are retained as unknown outcomes. There are no automatic retries or command replay on reconnect/reload. These controls support service calls and single publications, rather than continuous joystick/offboard streaming or a built-in ROS action client. Control definitions and the command log are saved locally in this browser.
 
-The **Mission console** supports `/help`, `/status`, `/topics`, and `/controls`. Ordinary text is saved as a local operational note. It is a deterministic local console, not a connected AI agent; it does not turn chat messages into vehicle commands. Mission console history is separate from Analysis's agent terminal. The existing agent transport contract remains available for a future configured adapter.
+The **Mission console** talks to the **Snappy** agent (see [Snappy in the Mission console](#snappy-in-the-mission-console)). Dashboard commands stay local: `/status` (link and target), `/topics`, `/controls`, `/help`, and `/note <text>` for a local operational note. Everything else goes to Snappy. Mission console history is separate from Analysis's agent terminal, which remains a local notes box.
 
 ## Night lighting and Focus
 
@@ -116,6 +116,25 @@ const agentTransport = createHttpAgentTransport('/api/agent/chat');
 The endpoint receives `POST { messages: [{ role, content }], context }` and returns `{ content: string }`. Context contains only connection status and selected topic names/types. Keep model credentials and authentication on your backend. This project does not supply an agent endpoint.
 
 Custom adapters implement `send({ messages, context, signal, onDelta })`, returning a response string, `{ content: string }`, or streaming text through `onDelta(text)` before resolving. **Stop**, clearing history, changing the adapter and unmounting abort the active request; adapters should honor the supplied `AbortSignal`. Late responses are ignored. Partial replies restored after a reload appear as stopped.
+
+## Snappy in the Mission console
+
+The Mission console sends your messages to Snappy, the guarded drone agent in the `snappy` package of the ROS 2 / PX4 repository. The dashboard sends only the text of your newest message; Snappy keeps the conversation, reads the vehicle's telemetry itself, and the browser's topic list and telemetry are not sent. Snappy answers in plain text, including plan cards.
+
+**Starting it** (on the computer that runs the simulation; the dashboard server forwards `/api/agent/*` to `http://127.0.0.1:8765`):
+
+```sh
+# in the snappy folder; add --robot ros --executor ros to use the simulator
+python3 -m drone_agent_core.web --robot ros --executor ros
+```
+
+It prints an access token and a link ending in `#snappy=<token>`. Open the dashboard through that link once: the token is stored in this browser and removed from the address bar. Every request carries it; without it the API answers 401. Use `--executor none` (the default) for a dry run where approval flies nothing, or `--executor fake` to rehearse the commands.
+
+**Commands.** Dashboard: `/status`, `/topics`, `/controls`, `/help`, `/note <text>`. Snappy: `/flight` (flight status; Snappy's own `/status`), `/enable` and `/disable` (let the agent move the drone, or stop it), `/approve <hash>` (fly the pending plan exactly as shown) and `/reject`, `/pause`, `/resume`, `/stop` (hold position). Snappy never flies a plan on its own: the model drafts a plan, the console shows its card and hash, and you approve it by typing `/approve <hash>` after `/enable`. `/stop`, `/pause`, `/resume`, `/disable` and `/status` work even while the language model is still answering. Text starting with `/` is never sent to the model.
+
+The controls in the command dock are unchanged: they still need review and **Send request**.
+
+Run the dashboard server with a different Snappy address using `npm run serve:lan -- --agent http://127.0.0.1:8765` or the `SNAPPY_AGENT_URL` environment variable; `npm run dev` forwards `/api/agent` to the same default. The Snappy API listens on this computer only by default. Anyone who has the token can fly the drone from the console, so treat the link like a password and keep this to simulation and trusted networks.
 
 ## Supported displays
 

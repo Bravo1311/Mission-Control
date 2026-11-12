@@ -13,7 +13,41 @@ const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
   '.png': 'image/png', '.gif': 'image/gif', '.jpg': 'image/jpeg', '.ico': 'image/x-icon',
   '.woff2': 'font/woff2', '.wasm': 'application/wasm' };
 
-export function createLanServer({ root = fileURLToPath(new URL('../dist', import.meta.url)), bridgeUrl = 'ws://127.0.0.1:2019' } = {}) {
+const AGENT_MAX_BODY = 64 * 1024;
+const AGENT_TIMEOUT_MS = 180000;   // a language-model turn can take a while
+
+// Forwards the Snappy chat API (python3 -m drone_agent_core.web). Only the
+// content type, length and Authorization header cross; cookies and the browser
+// Origin do not, and a foreign Origin is refused here, as for the WebSocket.
+function proxyAgent(request, response, pathname, agent) {
+  const fail = (code, message) => { if (!response.headersSent) response.writeHead(code, { 'Content-Type': mime['.json'], 'Cache-Control': 'no-store' }); response.end(JSON.stringify({ error: message })); };
+  if (!['GET', 'POST'].includes(request.method)) { fail(405, 'use GET or POST'); return; }
+  if (request.headers.origin) {
+    try {
+      const origin = new URL(request.headers.origin);
+      if (!['http:', 'https:'].includes(origin.protocol) || origin.host !== request.headers.host) { fail(403, 'cross-origin requests are not allowed'); return; }
+    } catch { fail(403, 'cross-origin requests are not allowed'); return; }
+  }
+  const length = request.headers['content-length'];
+  if (request.method === 'POST' && (length === undefined || !/^\d+$/.test(length))) { fail(411, 'Content-Length is required'); return; }
+  if (Number(length) > AGENT_MAX_BODY) { fail(413, 'request too large'); return; }
+  const headers = {};
+  for (const name of ['content-type', 'content-length', 'authorization']) if (request.headers[name]) headers[name] = request.headers[name];
+  const upstream = http.request({ hostname: agent.hostname, port: agent.port, path: pathname, method: request.method, headers, timeout: AGENT_TIMEOUT_MS }, remote => {
+    response.writeHead(remote.statusCode, { 'Content-Type': remote.headers['content-type'] || mime['.json'], 'Cache-Control': 'no-store' });
+    remote.pipe(response);
+  });
+  upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
+  upstream.on('error', () => fail(502, 'Snappy is not reachable'));
+  response.on('close', () => upstream.destroy());
+  request.pipe(upstream);
+}
+
+export function createLanServer({ root = fileURLToPath(new URL('../dist', import.meta.url)), bridgeUrl = 'ws://127.0.0.1:2019', agentUrl = 'http://127.0.0.1:8765' } = {}) {
+  const agent = new URL(agentUrl);
+  if (agent.protocol !== 'http:' || agent.username || agent.password || agent.hash) {
+    throw new Error('Agent URL must use http:// without credentials or a fragment.');
+  }
   const target = new URL(bridgeUrl);
   if (!['ws:', 'wss:'].includes(target.protocol) || target.username || target.password || target.hash) {
     throw new Error('Bridge URL must use ws:// or wss:// without credentials or a fragment.');
@@ -24,6 +58,7 @@ export function createLanServer({ root = fileURLToPath(new URL('../dist', import
   const server = http.createServer(async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Cache-Control', 'no-cache');
+    if (request.url.split('?')[0].startsWith('/api/agent/')) { proxyAgent(request, response, request.url.split('?')[0], agent); return; }
     if (!['GET', 'HEAD'].includes(request.method)) {
       response.writeHead(405, { Allow: 'GET, HEAD' }).end(); return;
     }
@@ -112,11 +147,11 @@ export function createLanServer({ root = fileURLToPath(new URL('../dist', import
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { values } = parseArgs({ options: { host: { type: 'string', default: '0.0.0.0' },
-      port: { type: 'string', default: '4173' }, bridge: { type: 'string', default: process.env.ROSBRIDGE_URL || 'ws://127.0.0.1:2019' } } });
+      port: { type: 'string', default: '4173' }, agent: { type: 'string', default: process.env.SNAPPY_AGENT_URL || 'http://127.0.0.1:8765' }, bridge: { type: 'string', default: process.env.ROSBRIDGE_URL || 'ws://127.0.0.1:2019' } } });
     const port = Number(values.port);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be between 1 and 65535.');
     await stat(new URL('../dist/index.html', import.meta.url));
-    const server = createLanServer({ bridgeUrl: values.bridge });
+    const server = createLanServer({ bridgeUrl: values.bridge, agentUrl: values.agent });
     server.on('error', error => { console.error(`LAN server: ${error.message}`); process.exitCode = 1; });
     server.listen(port, values.host, () => {
       console.log(`Mission Control: http://localhost:${port}`);
@@ -125,6 +160,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         : [values.host];
       [...new Set(addresses)].forEach(address => console.log(`Phone / LAN: http://${address.includes(':') ? `[${address}]` : address}:${port}`));
       console.log(`Rosbridge proxy: /rosbridge/preview → ${values.bridge} (mobile camera previews enabled)`);
+      console.log(`Snappy chat API: /api/agent/* → ${values.agent} (needs the access token printed by the Snappy web server)`);
       console.log('Use a trusted local network. Press Ctrl+C to stop.');
     });
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { void server.shutdown(); });

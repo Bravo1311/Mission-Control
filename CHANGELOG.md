@@ -1,5 +1,11 @@
 # Change history
 
+## 2026-11-05 — Snappy agent in the Mission console
+
+- Connected the Mission console to the Snappy agent through a token-protected `/api/agent/chat` endpoint. Added `src/lib/snappyTransport.js` (newest-message-only requests, Bearer token from the `#snappy=` link, readable failure messages) and command routing: `/status`, `/topics`, `/controls`, `/help` and `/note` stay local, `/flight` maps to Snappy's flight status, everything else goes to Snappy.
+- `scripts/serve-lan.mjs` forwards `/api/agent/*` to the Snappy web server (`--agent` / `SNAPPY_AGENT_URL`), passing only the content type, length and Authorization headers, refusing foreign origins, other methods and bodies over 64 KB. Vite's dev server forwards the same path.
+- Updated the console wording: it is no longer a local-only console, and says that Snappy moves the drone only after `/enable` and an approved plan. The Analysis agent terminal is unchanged.
+
 ## 2026-10-31 — Restrained topic palette
 
 - Replaced cyan/magenta vehicle colors with steel blue, warm ochre, sage, slate violet, copper, blue gray, olive, and silver. Arbitrary namespaces use the same curated palette.

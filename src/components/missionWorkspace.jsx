@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { TelemetryScope, useTelemetry } from '../context/telemetryContext.jsx';
 import { groupFlightTopics, flightReading } from '../lib/flightState.js';
 import { pos } from '../lib/plotHelpers.js';
-import { loadControls, CONTROLS_KEY, missionConsoleReply } from '../lib/missionControls.js';
+import { loadControls, CONTROLS_KEY, missionConsoleReply, routeConsoleInput } from '../lib/missionControls.js';
+import { createSnappyTransport, loadSnappyToken } from '../lib/snappyTransport.js';
 import GpsPanel from './gpsPanel.jsx';
 import StateEstimatePanel from './stateEstimatePanel.jsx';
 import AttitudeIndicatorPanel from './attitudeIndicatorPanel.jsx';
@@ -53,9 +54,17 @@ export default function MissionWorkspace() {
     setControls(next);
     try { localStorage.setItem(CONTROLS_KEY, JSON.stringify(next)); } catch { /* session only */ }
   };
-  const transport = useMemo(() => ({ send: async ({ messages, context }) => missionConsoleReply(messages.at(-1).content, {
-    status: context.connectionStatus, target: namespace ? `/${namespace}` : '', topics: context.topics, controls,
-  }) }), [namespace, controls]);
+  const snappy = useMemo(() => createSnappyTransport({ getToken: () => { try { return loadSnappyToken(window.localStorage); } catch { return ''; } } }), []);
+  // Dashboard commands answer locally; everything else goes to Snappy, which
+  // keeps its own conversation (only the newest message text is sent).
+  const transport = useMemo(() => ({ send: async args => {
+    const route = routeConsoleInput(args.messages.at(-1).content);
+    if (route.kind === 'snappy') return snappy.send({ ...args, messages: [{ role: 'user', content: route.text }] });
+    if (route.kind === 'note') return route.text ? 'Recorded as a local mission note.' : 'Usage: /note <text>';
+    return missionConsoleReply(route.text, {
+      status: args.context.connectionStatus, target: namespace ? `/${namespace}` : '', topics: args.context.topics, controls,
+    });
+  } }), [namespace, controls, snappy]);
   const hasPosition = selected.some(topic => ['trajectory', 'geo'].includes(classify(topic.name)));
   const hasTrajectory = selected.some(topic => classify(topic.name) === 'trajectory');
   const hasCamera = selected.some(topic => classify(topic.name) === 'camera');

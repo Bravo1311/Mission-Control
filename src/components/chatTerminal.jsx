@@ -55,11 +55,11 @@ export default function ChatTerminal({ transport = null, embedded = false, conso
     }}>
       <header className="chat-header">
         <span className="chat-terminal-mark" aria-hidden="true">›_</span>
-        <div><h2>{consoleMode ? 'Mission console' : 'Agent terminal'}</h2><p>{consoleMode ? 'Local commands and operational notes' : state.configured ? 'Agent adapter configured' : 'Local workspace · agent not connected'}</p></div>
+        <div><h2>{consoleMode ? 'Mission console' : 'Agent terminal'}</h2><p>{consoleMode ? 'Snappy agent and dashboard commands' : state.configured ? 'Agent adapter configured' : 'Local workspace · agent not connected'}</p></div>
         {!embedded && <button type="button" className="chat-close" aria-label="Close agent terminal" onClick={() => setOpen(false)}>×</button>}
       </header>
       <div className="chat-toolbar">
-        <span>{consoleMode ? '/help for commands' : state.configured ? 'Agent mode' : 'Local mode'}</span>
+        <span>{consoleMode ? 'Snappy · /help for commands' : state.configured ? 'Agent mode' : 'Local mode'}</span>
         <button type="button" disabled={!state.messages.length} onClick={() => session.clear()}>Clear history</button>
       </div>
       <div ref={logRef} className="chat-log" role="log" aria-label="Chat messages" aria-live="polite" aria-relevant="additions text" onScroll={event => {
@@ -68,9 +68,9 @@ export default function ChatTerminal({ transport = null, embedded = false, conso
       }}>
         {!state.messages.length && <div className="chat-empty">
           <span className="chat-empty-prompt" aria-hidden="true">›_</span>
-          <h3>{consoleMode ? 'Mission notes' : 'Agent workspace'}</h3>
-          <p>{consoleMode ? 'Use /status, /topics or /help. Other messages become local mission notes.' : state.configured ? 'Send a message to your configured agent.' : 'Save notes and prompts here. Attach an agent later to enable replies.'}</p>
-          <span>{consoleMode ? 'Console commands do not send vehicle commands.' : state.configured ? 'Only topic names, types and connection status accompany your message.' : 'Local messages are not sent or automatically replayed.'}</span>
+          <h3>{consoleMode ? 'Ask Snappy' : 'Agent workspace'}</h3>
+          <p>{consoleMode ? 'Describe a mission in plain language, or use /help. /status, /topics and /controls are dashboard commands; /note saves a local note.' : state.configured ? 'Send a message to your configured agent.' : 'Save notes and prompts here. Attach an agent later to enable replies.'}</p>
+          <span>{consoleMode ? 'Snappy moves the drone only after you type /enable and approve a plan with /approve <hash>.' : state.configured ? 'Only topic names, types and connection status accompany your message.' : 'Local messages are not sent or automatically replayed.'}</span>
         </div>}
         {state.messages.map(message => <article className={`chat-message chat-message-${message.role}`} key={message.id}>
           <header><strong>{message.role === 'user' ? 'You' : consoleMode ? 'Console' : 'Agent'}</strong><span>{message.status === 'local' ? 'Local only' : message.status === 'cancelled' ? 'Stopped' : message.status === 'error' ? 'Failed' : ''}</span><time dateTime={message.createdAt}>{clock(message.createdAt)}</time></header>
@@ -80,14 +80,14 @@ export default function ChatTerminal({ transport = null, embedded = false, conso
       </div>
       <form className="chat-composer" onSubmit={submit}>
         <label htmlFor={embedded ? 'mission-message' : 'agent-message'}>Message</label>
-        <textarea id={embedded ? 'mission-message' : 'agent-message'} ref={inputRef} value={draft} maxLength={MAX_CHAT_INPUT} rows="3" placeholder={consoleMode ? '/status or write a mission note…' : state.configured ? 'Message your agent…' : 'Write a note or a prompt…'} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
+        <textarea id={embedded ? 'mission-message' : 'agent-message'} ref={inputRef} value={draft} maxLength={MAX_CHAT_INPUT} rows="3" placeholder={consoleMode ? 'Ask Snappy, or /help…' : state.configured ? 'Message your agent…' : 'Write a note or a prompt…'} onChange={event => setDraft(event.target.value)} onKeyDown={event => {
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
         }} />
         <div className="chat-composer-actions">
           <span>{draft.length}/{MAX_CHAT_INPUT}<span className="chat-keyboard-hint"> · Shift+Enter for a new line</span></span>
           {state.pending ? <button type="button" className="chat-send" onClick={() => session.cancel()}>Stop</button> : <button type="submit" className="chat-send" disabled={!draft.trim()}>{state.configured ? 'Send' : 'Save message'}</button>}
         </div>
-        <p className="chat-storage-note">{state.historySaved ? 'History saved in this browser' : 'History available for this session only'}{consoleMode ? ' · Local console' : state.configured ? ' · Topic metadata included' : ' · No agent requests'}</p>
+        <p className="chat-storage-note">{state.historySaved ? 'History saved in this browser' : 'History available for this session only'}{consoleMode ? ' · Snappy agent · only your message text is sent' : state.configured ? ' · Topic metadata included' : ' · No agent requests'}</p>
       </form>
     </section>}
   </>;

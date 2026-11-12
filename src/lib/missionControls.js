@@ -96,9 +96,22 @@ export function executeRosControl(ros, command, timeoutMs = 6000) {
   });
 }
 
+const LOCAL_WORDS = new Set(['/help', '/status', '/topics', '/controls']);
+
+/** Decides who answers a console line. Dashboard commands stay local; /note saves a
+ * local note; /flight is Snappy's /status under another name; everything else goes to Snappy. */
+export function routeConsoleInput(input) {
+  const text = input.trim();
+  const word = text.split(/\s+/, 1)[0];
+  if (LOCAL_WORDS.has(word)) return { kind: 'local', text };
+  if (word === '/note') return { kind: 'note', text: text.slice(5).trim() };
+  if (word === '/flight') return { kind: 'snappy', text: ['/status', ...text.split(/\s+/).slice(1)].join(' ') };
+  return { kind: 'snappy', text };
+}
+
 export function missionConsoleReply(input, context) {
   const text = input.trim();
-  if (text === '/help') return '/status — connection and selected target\n/topics — subscribed topic names\n/controls — configured ROS controls\nOther messages are saved as local mission notes. Vehicle commands are sent only from the command dock after review.';
+  if (text === '/help') return 'Ask Snappy in plain language, or use commands.\nDashboard: /status (link and target), /topics, /controls, /note <text> (save a local note)\nSnappy: /flight (flight status), /enable, /disable, /approve <hash>, /reject, /pause, /resume, /stop\nSnappy flies only after /enable and an approved plan. Controls in the command dock still need review and Send request.';
   if (text === '/status') return `Connection: ${context.status}\nTarget: ${context.target || 'No vehicle selected'}\nSubscribed sources: ${context.topics.length}`;
   if (text === '/topics') return context.topics.map(topic => `${topic.name} (${topic.type})`).join('\n') || 'No topics selected. Open Topics to connect and subscribe.';
   if (text === '/controls') return context.controls.map(control => `${control.label}: ${control.kind} ${control.endpoint}`).join('\n') || 'No ROS controls configured. Choose Add control in the command dock.';

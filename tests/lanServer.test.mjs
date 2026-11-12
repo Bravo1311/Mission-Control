@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import http from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createLanServer } from '../scripts/serve-lan.mjs';
 
@@ -80,4 +81,53 @@ test('LAN proxy rejects other origins and responds cleanly when the bridge is un
     });
     assert.equal(response, status);
   }
+});
+
+
+async function fakeSnappy(t) {
+  const seen = [];
+  const backend = http.createServer((request, response) => {
+    const chunks = [];
+    request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+      seen.push({ method: request.method, url: request.url, headers: request.headers, body: Buffer.concat(chunks).toString() });
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ content: 'from snappy' }));
+    });
+  });
+  backend.listen(0, '127.0.0.1'); await once(backend, 'listening');
+  t.after(() => new Promise(done => { backend.closeAllConnections?.(); backend.close(done); }));
+  return { seen, agentUrl: `http://127.0.0.1:${backend.address().port}` };
+}
+
+test('the Snappy chat API is forwarded with only the safe headers', async t => {
+  const { seen, agentUrl } = await fakeSnappy(t);
+  const { url } = await setup(t, { agentUrl });
+  const result = await fetch(`${url}/api/agent/chat`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer tok', Cookie: 'session=1', 'X-Extra': 'no' },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }) });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { content: 'from snappy' });
+  assert.equal(seen[0].url, '/api/agent/chat');
+  assert.equal(seen[0].headers.authorization, 'Bearer tok');
+  assert.equal(seen[0].headers.cookie, undefined);
+  assert.equal(seen[0].headers['x-extra'], undefined);
+  assert.match(seen[0].body, /hello/);
+});
+
+test('the Snappy chat API proxy refuses foreign origins, other methods, large bodies and reports a missing backend', async t => {
+  const { seen, agentUrl } = await fakeSnappy(t);
+  const { url } = await setup(t, { agentUrl });
+  const post = (init = {}) => fetch(`${url}/api/agent/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', ...init });
+  const foreign = await new Promise(resolve => {
+    const request = http.request(`${url}/api/agent/chat`, { method: 'POST', headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json', 'Content-Length': 2 } }, resolve);
+    request.end('{}');
+  });
+  assert.equal(foreign.statusCode, 403); foreign.resume();
+  assert.equal((await fetch(`${url}/api/agent/chat`, { method: 'PUT', body: '{}' })).status, 405);
+  assert.equal((await post({ body: 'x'.repeat(70 * 1024) })).status, 413);
+  assert.equal(seen.length, 0);
+  const down = await setup(t, { agentUrl: 'http://127.0.0.1:1' });
+  const failed = await fetch(`${down.url}/api/agent/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(failed.status, 502);
+  assert.match((await failed.json()).error, /not reachable/);
 });
