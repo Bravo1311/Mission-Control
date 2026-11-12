@@ -1,5 +1,11 @@
 # Change history
 
+## 2026-11-12 — Per-drone estimation error panels
+
+- Replaced the global two-source comparison with one master panel for each drone that has at least two selected position sources. Each panel has an independent ground-truth selector and compares all remaining selected sources together, with position/orientation/velocity tabs and per-source statistics.
+- Added native NavSatFix position comparisons through the existing ENU origin, explicit missing-data readouts, and independent hide/restore and Focus preferences. Reference changes and removals stay within their drone.
+- Cached unchanged calculations, prepared each reference once per version, and bounded each plotted trace to 600 points while preserving bucket extrema and computing statistics from all retained pairs. Added numerical and multi-drone browser regressions.
+
 ## 2026-11-05 — Snappy agent in the Mission console
 
 - Connected the Mission console to the Snappy agent through a token-protected `/api/agent/chat` endpoint. Added `src/lib/snappyTransport.js` (newest-message-only requests, Bearer token from the `#snappy=` link, readable failure messages) and command routing: `/status`, `/topics`, `/controls`, `/help` and `/note` stay local, `/flight` maps to Snappy's flight status, everything else goes to Snappy.

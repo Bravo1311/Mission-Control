@@ -10,7 +10,7 @@ import SensorPanel from './components/sensorPanel'
 import TopicDetailsPanel from './components/topicDetailsPanel'
 import ChatTerminal from './components/chatTerminal'
 import { groupFlightTopics } from './lib/flightState.js'
-import { flightPanelId } from './lib/panelPreferences.js'
+import { flightPanelId, errorPanelId } from './lib/panelPreferences.js'
 import { WorkspaceActivityContext } from './context/workspaceActivity.js'
 import { AUTO_ALERTS_ENABLED } from './lib/alertPolicy.js'
 import './App.css'
@@ -40,12 +40,15 @@ const DashboardBody = () => {
   const hasGeo = selected.some((t) => ['geo', 'trajectory'].includes(classify(t.name)))
 
   const kinds = new Set(selected.map(t => classify(t.name)))
+  const errorGroups = groupFlightTopics(selected.filter(t => ['trajectory', 'geo'].includes(classify(t.name))))
   const panels = [
     trajCount > 0 && { id: 'trajectory', node: <StateEstimatePanel /> },
     hasGeo && { id: 'gps', node: <GpsPanel /> },
     ...groupFlightTopics(trajectoryTopics).map(group => ({ id: flightPanelId(group.key), kind: 'attitude', title: `Flight state · ${group.label}`,
       sourceCount: group.topics.length, node: <AttitudeIndicatorPanel group={group} /> })),
-    trajCount >= 2 && { id: 'error', node: <ErrorPanel />, monitor: AUTO_ALERTS_ENABLED ? <ErrorPanel monitorOnly /> : null },
+    ...errorGroups.filter(group => group.topics.length >= 2).map(group => ({ id: errorPanelId(group.key), kind: 'error',
+      title: `Estimation error · ${group.label}`, sourceCount: group.topics.length,
+      node: <ErrorPanel group={group} />, monitor: AUTO_ALERTS_ENABLED ? <ErrorPanel group={group} monitorOnly /> : null })),
     kinds.has('camera') && { id: 'camera', node: <SensorPanel kind="camera" /> },
     kinds.has('lidar') && { id: 'lidar', node: <SensorPanel kind="lidar" /> },
     ['imu', 'scalar', 'vector', 'diagnostics', 'raw'].some(k => kinds.has(k)) && { id: 'readings', node: <TopicDetailsPanel /> },

@@ -60,8 +60,8 @@ const DashboardGrid = ({ panels }) => {
   });
   const [nightStates, setNightStates] = useState({});
   const [alerts, setAlerts] = useState({});
-  // An older saved global Flight state preference still hides its successors.
-  const visiblePanels = panels.filter(panel => !hiddenPanels.includes(panel.id) && !(panel.kind === 'attitude' && hiddenPanels.includes('attitude')));
+  // Older global preferences still apply to their per-drone successors.
+  const visiblePanels = panels.filter(panel => !hiddenPanels.includes(panel.id) && !hiddenPanels.includes(panel.kind));
   const updateHidden = next => {
     setHiddenPanels(next);
     try { saveHiddenPanels(window.localStorage, next); } catch { /* session only */ }
@@ -84,6 +84,7 @@ const DashboardGrid = ({ panels }) => {
   }, []);
   const narrow = width < 900;
   const flightPanels = panels.filter(panel => panel.kind === 'attitude');
+  const errorPanels = panels.filter(panel => panel.kind === 'error');
   const defaults = useMemo(() => {
     const cameraWidth = width * (narrow ? 1 : 7 / 12);
     const preferred = Math.ceil((cameraWidth * 9 / 16 + 190) / 36);
@@ -95,13 +96,22 @@ const DashboardGrid = ({ panels }) => {
     const flightDefaults = Object.fromEntries(flightPanels.map((panel, index) => [panel.id, { ...DEFAULTS.attitude,
       x: index % flightColumns * (12 / flightColumns), y: 16 + Math.floor(index / flightColumns) * flightRowHeight,
       w: 12 / flightColumns, h: flightHeights[index] }]));
+    const errorColumns = width >= 1600 && errorPanels.length > 1 ? 2 : 1;
+    const errorY = 16 + Math.ceil(flightPanels.length / flightColumns) * flightRowHeight;
+    const errorHeight = 18;
+    const errorDefaults = Object.fromEntries(errorPanels.map((panel, index) => [panel.id, { ...DEFAULTS.error,
+      x: index % errorColumns * (12 / errorColumns), y: errorY + Math.floor(index / errorColumns) * errorHeight,
+      w: 12 / errorColumns, h: errorHeight, minH: 16 }]));
+    const sensorY = errorY + Math.ceil(errorPanels.length / errorColumns) * errorHeight;
     return {
       ...DEFAULTS,
       ...flightDefaults,
-      camera: { ...DEFAULTS.camera, w: narrow ? 12 : 7, h: sensorHeight },
-      lidar: { ...DEFAULTS.lidar, x: narrow ? 0 : 7, w: narrow ? 12 : 5, h: sensorHeight },
+      ...errorDefaults,
+      camera: { ...DEFAULTS.camera, y: sensorY, w: narrow ? 12 : 7, h: sensorHeight },
+      lidar: { ...DEFAULTS.lidar, y: sensorY, x: narrow ? 0 : 7, w: narrow ? 12 : 5, h: sensorHeight },
+      readings: { ...DEFAULTS.readings, y: sensorY + sensorHeight },
     };
-  }, [width, narrow, viewportHeight, flightPanels]);
+  }, [width, narrow, viewportHeight, flightPanels, errorPanels]);
   const layout = useMemo(
     () => visiblePanels.map(({ id }) => ({
       i: id,
@@ -145,7 +155,7 @@ const DashboardGrid = ({ panels }) => {
   const orderedPanels = focus ? activeLayout.map(item => visiblePanels.find(panel => panel.id === item.i)) : visiblePanels;
   const activeAlerts = panels.filter(panel => alerts[panel.id]?.severity);
   const inspectAlert = id => {
-    updateHidden(hiddenPanels.filter(name => name !== id && !(name === 'attitude' && id.startsWith('attitude:'))));
+    updateHidden(hiddenPanels.filter(name => name !== id && !id.startsWith(`${name}:`)));
     // A restored panel reports its alert state after mounting; let the Focus
     // layout apply that expansion before choosing the scroll destination.
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -155,7 +165,7 @@ const DashboardGrid = ({ panels }) => {
     }));
   };
   const actionsFor = id => ({ hidePanel: () => hidePanel(id),
-    focusLit: focusPanels[id] ?? panels.find(panel => panel.id === id)?.kind === 'attitude',
+    focusLit: focusPanels[id] ?? focusPanels[panels.find(panel => panel.id === id)?.kind] ?? panels.find(panel => panel.id === id)?.kind === 'attitude',
     setFocusLit: lit => setFocusPanels(previous => {
       const next = { ...previous, [id]: lit };
       try { saveFocusPanels(window.localStorage, next); } catch { /* session only */ }

@@ -11,7 +11,8 @@ import { createLanServer } from '../scripts/serve-lan.mjs';
 const profiling = process.argv.includes('--profile');
 const PROFILE_DONE = Symbol('profile complete');
 const development = process.argv.includes('--dev') || !!process.env.DASHBOARD_DEV;
-const navigationOnly = process.argv.includes('--navigation-only') || !!process.env.DASHBOARD_NAV_ONLY;
+const errorsOnly = process.argv.includes('--errors-only');
+const navigationOnly = errorsOnly || process.argv.includes('--navigation-only') || !!process.env.DASHBOARD_NAV_ONLY;
 const lan = process.argv.includes('--lan');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const profile = await mkdtemp(join(tmpdir(), 'mission-sensors-'));
@@ -131,10 +132,12 @@ try {
         const item=[...document.querySelectorAll('.trajectory-legend-item')].find(node=>node.dataset.topic===name);
         if(!item||normalize(getComputedStyle(label).borderLeftColor)!==color(item.querySelector('svg')))failures.push(name+' comparison');
       }
-      const plot=document.querySelector('.estimation-panel .js-plotly-plot');
-      const estimate=document.querySelector('[aria-label="Estimate topic"]')?.value;
-      const item=[...document.querySelectorAll('.trajectory-legend-item')].find(node=>node.dataset.topic===estimate);
-      if(plot&&item&&normalize(plot.data[0].line.color)!==color(item.querySelector('svg')))failures.push('estimate chart');
+      for(const plot of document.querySelectorAll('.estimation-panel .js-plotly-plot')){
+        for(const trace of plot.data){
+          const item=[...document.querySelectorAll('.trajectory-legend-item')].find(node=>node.dataset.topic===trace.meta.topic);
+          if(!item||normalize(trace.line.color)!==color(item.querySelector('svg')))failures.push(trace.meta.topic+' estimate chart');
+        }
+      }
       return failures;
     })()`);
     assert.deepEqual(mismatches, [], 'Topic identity must match across panels');
@@ -414,6 +417,50 @@ try {
   assert.equal(await evaluate(`document.querySelectorAll('.flight-state-panel').length`), 2);
   assert.equal(await evaluate(`document.querySelectorAll('.flight-state-panel[data-vehicle="drone_1"] .flight-source-row').length`), 4);
   assert.equal(await evaluate(`document.querySelectorAll('.flight-state-panel[data-vehicle="drone_2"] .flight-source-row').length`), 3);
+  // Each drone owns one reference selector and every other selected source.
+  await until(`document.querySelectorAll('.estimation-panel').length===2 && document.querySelectorAll('.error-source-row').length===5`);
+  const selectGroundTruth = async (vehicle, topic) => {
+    await evaluate(`(()=>{const input=document.querySelector('[aria-label="Ground truth topic for ${vehicle}"]');input.value=${JSON.stringify(topic)};input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await until(`document.querySelector('[aria-label="Ground truth topic for ${vehicle}"]').value===${JSON.stringify(topic)} && [...document.querySelectorAll('.estimation-panel[data-vehicle="${vehicle}"] .error-source-row')].every(row=>row.dataset.reference===${JSON.stringify(topic)} && row.dataset.topic!==${JSON.stringify(topic)})`);
+  };
+  const reference2 = await evaluate(`document.querySelector('[aria-label="Ground truth topic for drone_2"]').value`);
+  await selectGroundTruth('drone_1', '/drone_1/fusion/odom');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Ground truth topic for drone_2"]').value`), reference2, 'Changing drone 1 reference must not change drone 2');
+  await selectGroundTruth('drone_2', '/drone_2/gps/odom');
+  await evaluate(`document.querySelector('[aria-label="Hide Estimation error · drone_1 panel"]').click()`);
+  await until(`!document.querySelector('.estimation-panel[data-vehicle="drone_1"]') && document.querySelector('.estimation-panel[data-vehicle="drone_2"]')`);
+  await evaluate(`document.querySelector('[aria-label="Restore Estimation error · drone_1 panel"]').click()`);
+  await until(`document.querySelector('[aria-label="Ground truth topic for drone_1"]')?.value==='/drone_1/fusion/odom'`);
+  await evaluate(`document.querySelector('.hidden-panels-toggle').click();document.querySelector('.header-actions .btn-primary').click()`);
+  await evaluate(`document.querySelector('input[aria-label="Toggle /drone_1/fusion/odom"]').click()`);
+  await until(`document.querySelector('[aria-label="Ground truth topic for drone_1"]').value==='/drone_1/odometry' && document.querySelectorAll('.estimation-panel[data-vehicle="drone_1"] .error-source-row').length===2`);
+  await evaluate(`document.querySelector('input[aria-label="Toggle /drone_1/fusion/odom"]').click();document.querySelector('.offcanvas .btn-close').click()`);
+  await until(`document.querySelectorAll('.estimation-panel[data-vehicle="drone_1"] .error-source-row').length===3`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Ground truth topic for drone_1"]').value`), '/drone_1/odometry', 'Re-adding a removed reference must not replace its valid fallback');
+  for (const [vehicle, count] of [['drone_1', 3], ['drone_2', 2]]) {
+    await evaluate(`document.querySelector('.estimation-panel[data-vehicle="${vehicle}"]').scrollIntoView({block:'center'})`);
+    await until(`document.querySelector('.estimation-panel[data-vehicle="${vehicle}"] .js-plotly-plot')?.data.length===${count}`);
+    const comparisons = await evaluate(`(()=>{const panel=document.querySelector('.estimation-panel[data-vehicle="${vehicle}"]');return {reference:panel.querySelector('select').value,options:[...panel.querySelectorAll('option')].map(node=>node.value),traces:panel.querySelector('.js-plotly-plot').data.map(trace=>({topic:trace.meta.topic,count:trace.x.length}))};})()`);
+    assert.ok(comparisons.options.every(name => name.startsWith(`/${vehicle}/`)), 'Reference choices must stay within the drone');
+    assert.ok(comparisons.traces.every(trace => trace.topic.startsWith(`/${vehicle}/`) && trace.topic!==comparisons.reference && trace.count<=600));
+  }
+  await capturePanel('.estimation-panel[data-vehicle="drone_1"]', '/tmp/mission-error-drone-1-desktop.png');
+  await capturePanel('.estimation-panel[data-vehicle="drone_2"]', '/tmp/mission-error-drone-2-desktop.png');
+  await cdp('Emulation.setDeviceMetricsOverride', { width:390,height:844,deviceScaleFactor:1,mobile:true });
+  await until(`document.querySelector('.estimation-panel').getBoundingClientRect().width<390 && document.querySelector('.flight-state-panel').getBoundingClientRect().height>800`);
+  await delay(400);
+  assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth`), true, 'Error statistics must scroll inside the panel on phones');
+  await evaluate(`(()=>{const panel=document.querySelector('.estimation-panel[data-vehicle="drone_1"]');const header=document.querySelector('.app-header');window.scrollTo({top:panel.getBoundingClientRect().top+scrollY-header.getBoundingClientRect().bottom-10,behavior:'instant'});})()`);
+  await until(`(()=>{const panel=document.querySelector('.estimation-panel[data-vehicle="drone_1"]').getBoundingClientRect(),header=document.querySelector('.app-header').getBoundingClientRect();return panel.top>=header.bottom && panel.top<header.bottom+30;})()`);
+  const mobileError = await cdp('Page.captureScreenshot', { format: 'png' });
+  await writeFile('/tmp/mission-error-drone-1-mobile.png', Buffer.from(mobileError.data, 'base64'));
+  if (errorsOnly) {
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ result: 'PASS', scenarios: ['per-drone error panels', 'all selected estimates', 'independent ground truth', 'reference removal and fallback', 'hide/restore reference', 'bounded chart traces', 'source identity', 'mobile error layout'], development }, null, 2));
+    throw PROFILE_DONE;
+  }
+  await cdp('Emulation.setDeviceMetricsOverride', { width:1440,height:1200,deviceScaleFactor:1,mobile:false });
+  await delay(350);
   await evaluate(`document.querySelector('[aria-label="Highlight /drone_1/gps/odom"]').click()`);
   await until(`document.querySelector('[aria-label="Highlight /drone_1/gps/odom"]').getAttribute('aria-pressed')==='true'`);
   assert.equal(await evaluate(`[...document.querySelectorAll('.flight-state-panel[data-vehicle="drone_2"] .flight-heading-track')].every(node=>node.getAttribute('opacity')==='1')`), true, 'Highlighting drone 1 must not dim drone 2');
@@ -505,22 +552,22 @@ try {
   await evaluate(`document.querySelector('.flight-state-panel .night-panel-toggle').click()`);
   await until(`document.querySelector('.flight-state-panel[data-vehicle="drone_1"]').dataset.nightState==='standby'`);
   // Automatic alerts are disabled: high errors must not pop up or wake panels.
-  await evaluate(`document.querySelector('[data-panel-id="error"] .panel-hide').click()`);
-  await until(`!document.querySelector('.estimation-panel')`);
+  await evaluate(`document.querySelector('[data-panel-id="error:drone_1"] .panel-hide').click()`);
+  await until(`!document.querySelector('.estimation-panel[data-vehicle="drone_1"]')`);
   const normalFusionOrientation = fixtures['/drone_1/fusion/odom'][1].pose.pose.orientation;
   fixtures['/drone_1/fusion/odom'][1].pose.pose.orientation = quaternion(0,0,180);
   await delay(500);
-  assert.equal(await evaluate(`!document.querySelector('.workspace-alerts') && !document.querySelector('.estimation-panel')`), true, 'Errors must not pop up hidden panels or alert banners');
-  await evaluate(`document.querySelector('[aria-label="Restore Estimation error panel"]').click()`);
+  assert.equal(await evaluate(`!document.querySelector('.workspace-alerts') && !document.querySelector('.estimation-panel[data-vehicle="drone_1"]')`), true, 'Errors must not pop up hidden panels or alert banners');
+  await evaluate(`document.querySelector('[aria-label="Restore Estimation error · drone_1 panel"]').click()`);
   await until(`document.querySelector('.estimation-panel')?.dataset.nightState==='standby'`);
   assert.equal(await evaluate(`document.querySelector('.estimation-panel').hasAttribute('data-alert')`), false);
-  await evaluate(`document.querySelector('[aria-label="Show Estimation error in Focus mode"]').click()`);
+  await evaluate(`document.querySelector('[aria-label="Show Estimation error · drone_1 in Focus mode"]').click()`);
   await until(`document.querySelector('.estimation-panel').dataset.nightState==='revealed' && document.querySelector('.estimation-panel').clientHeight>200`);
   await evaluate(`document.querySelector('.estimation-panel').scrollIntoView({block:'start'});[...document.querySelectorAll('.estimation-panel [role="tab"]')].find(button=>button.textContent==='Orientation').click()`);
   await until(`document.querySelector('.estimation-panel .js-plotly-plot') && document.querySelector('.estimation-panel .stat-danger')`);
   assert.equal(await evaluate(`!document.querySelector('.workspace-alerts') && !document.querySelector('.night-alert-label')`), true, 'Manual inspection retains inline error bands without automatic alerts');
   await capturePanel('.estimation-panel', '/tmp/mission-night-alert.png');
-  await evaluate(`document.querySelector('[aria-label="Blank Estimation error in Focus mode"]').click()`);
+  await evaluate(`document.querySelector('[aria-label="Blank Estimation error · drone_1 in Focus mode"]').click()`);
   fixtures['/drone_1/fusion/odom'][1].pose.pose.orientation = normalFusionOrientation;
   await evaluate(`[...document.querySelectorAll('.header-actions button')].find(button=>button.textContent.trim()==='Clear').click()`);
   await until(`document.querySelector('.estimation-panel').dataset.nightState==='standby'`);
@@ -602,11 +649,9 @@ try {
   streaming = true;
   await evaluate(`[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='3D').click()`);
   await until(`document.querySelector('[aria-label="Orthographic 3D position tracks"]')`);
-  const chosenRoles = await evaluate(`({reference:document.querySelector('[aria-label="Reference topic"]').value,estimate:document.querySelector('[aria-label="Estimate topic"]').value})`);
-  assert.equal(chosenRoles.reference, '/drone_1/odometry');
-  assert.equal(chosenRoles.estimate, '/drone_1/fusion/odom');
-  await evaluate(`document.querySelector('[aria-label="Swap reference and estimate"]').click()`);
-  assert.equal(await evaluate(`document.querySelector('[aria-label="Reference topic"]').value`), chosenRoles.estimate);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Ground truth topic for drone_1"]').value`), '/drone_1/odometry');
+  await evaluate(`(()=>{const input=document.querySelector('[aria-label="Ground truth topic for drone_1"]');input.value='/drone_1/fusion/odom';input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(`document.querySelector('.error-source-row').dataset.topic==='/drone_1/odometry' && document.querySelector('.error-source-row').dataset.reference==='/drone_1/fusion/odom'`);
   await delay(350);
   await assertTopicColors();
   for (const metric of ['Orientation', 'Velocity', 'Position']) {
@@ -614,7 +659,7 @@ try {
     await delay(300);
     await assertTopicColors();
   }
-  await evaluate(`document.querySelector('[aria-label="Swap reference and estimate"]').click()`);
+  await evaluate(`(()=>{const input=document.querySelector('[aria-label="Ground truth topic for drone_1"]');input.value='/drone_1/odometry';input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   assert.equal(await evaluate(`document.querySelector('.flight-state-panel').innerHTML.includes('#ffd060')`), false);
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1900, height: 1200, deviceScaleFactor: 1, mobile: false });
   await evaluate(`document.querySelector('.flight-state-panel').scrollIntoView({block:'start'})`);
@@ -630,7 +675,7 @@ try {
   const narrowNavigation = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile('/tmp/mission-flight-state-mobile.png', Buffer.from(narrowNavigation.data, 'base64'));
   // Hiding every panel must leave a usable recovery path and persist on reload.
-  for (const id of ['trajectory', 'gps', 'attitude:drone_1', 'error']) {
+  for (const id of ['trajectory', 'gps', 'attitude:drone_1', 'error:drone_1']) {
     await evaluate(`document.querySelector('[data-panel-id="${id}"] .panel-hide').click()`);
     await until(`!document.querySelector('[data-panel-id="${id}"]')`);
   }
@@ -755,7 +800,7 @@ try {
   await until(`document.querySelector('#mission-workspace .chat-log').textContent.includes('Connection: connected')`);
   assert.equal(controlPackets.length, 1, 'Reload must not replay saved commands or console history');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: 'PASS', scenarios: ['persistent performance preference', 'terminal local history and reload', 'terminal plain-text messages', 'terminal mobile layout', 'terminal keyboard focus', ...(navigationOnly ? [] : ['automatic mobile budgets', 'off-screen sensor throttling', 'Night lighting preserves streams', 'camera-only dimming', 'Focus sensor suspension and wake', 'raw camera', 'compressed PNG/JPEG', 'malformed-frame recovery', '20-second heap/FPS check', 'LaserScan', '200k PointCloud2', 'source switching', 'pause/resume', 'clear', 'unsubscribe cleanup']), 'compact workspace', 'off-screen charts freeze', 'full Night dashboard and stable layout', 'saved Focus choices', 'automatic alert pop-ups disabled', 'idle stale-data detection', 'flight instruments', 'distinct comparison defaults', 'reference swap', 'navigation mobile layout', '2D/3D switching', 'idle GPU drawing stops', 'odometry unmount/remount', 'separate Mission workspace', 'Analysis geometry preserved', 'inactive workspace rendering sleeps', 'reviewed ROS controls', 'Mission console', 'no command replay', 'Mission mobile layout'], development, lan, stats, screenshot: '/tmp/mission-sensor-preview.png' }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', scenarios: ['persistent performance preference', 'terminal local history and reload', 'terminal plain-text messages', 'terminal mobile layout', 'terminal keyboard focus', ...(navigationOnly ? [] : ['automatic mobile budgets', 'off-screen sensor throttling', 'Night lighting preserves streams', 'camera-only dimming', 'Focus sensor suspension and wake', 'raw camera', 'compressed PNG/JPEG', 'malformed-frame recovery', '20-second heap/FPS check', 'LaserScan', '200k PointCloud2', 'source switching', 'pause/resume', 'clear', 'unsubscribe cleanup']), 'compact workspace', 'off-screen charts freeze', 'full Night dashboard and stable layout', 'saved Focus choices', 'automatic alert pop-ups disabled', 'idle stale-data detection', 'flight instruments', 'per-drone ground truth and multiple estimates', 'independent reference selection', 'navigation mobile layout', '2D/3D switching', 'idle GPU drawing stops', 'odometry unmount/remount', 'separate Mission workspace', 'Analysis geometry preserved', 'inactive workspace rendering sleeps', 'reviewed ROS controls', 'Mission console', 'no command replay', 'Mission mobile layout'], development, lan, stats, screenshot: '/tmp/mission-sensor-preview.png' }, null, 2));
 } catch (error) {
   if (error !== PROFILE_DONE) throw error;
 } finally {

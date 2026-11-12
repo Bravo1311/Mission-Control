@@ -4,23 +4,27 @@ export const PANEL_CATALOG = {
   trajectory: { title: 'Trajectory', description: '2D and 3D position tracks' },
   gps: { title: 'Navigation map', description: 'Georeferenced trails and drone labels' },
   attitude: { title: 'Flight state', description: 'Attitude, heading and speed by drone' },
-  error: { title: 'Estimation error', description: 'Time-aligned source comparison' },
+  error: { title: 'Estimation error', description: 'All selected estimates against ground truth, by drone' },
   camera: { title: 'Camera feed', description: 'Color and depth images' },
   lidar: { title: 'Lidar scan', description: 'Scan and point-cloud previews' },
   readings: { title: 'Sensor readings & messages', description: 'IMU, scalar and message readouts' },
 };
 
 export const flightPanelId = key => `attitude:${encodeURIComponent(key)}`;
+export const errorPanelId = key => `error:${encodeURIComponent(key)}`;
 
 export function panelDefinition(id) {
   if (typeof id !== 'string') return null;
   if (Object.hasOwn(PANEL_CATALOG, id)) return PANEL_CATALOG[id];
-  if (!id.startsWith('attitude:')) return null;
+  const kind = ['attitude', 'error'].find(kind => id.startsWith(`${kind}:`));
+  if (!kind) return null;
   try {
-    const key = decodeURIComponent(id.slice('attitude:'.length));
-    if (flightPanelId(key) !== id) return null;
+    const key = decodeURIComponent(id.slice(kind.length + 1));
+    if (`${kind}:${encodeURIComponent(key)}` !== id) return null;
     const label = key || 'Unnamespaced';
-    return { title: `Flight state · ${label}`, description: `Overlaid estimates for ${label}` };
+    return kind === 'attitude'
+      ? { title: `Flight state · ${label}`, description: `Overlaid estimates for ${label}` }
+      : { title: `Estimation error · ${label}`, description: `Selected estimates against ground truth for ${label}` };
   } catch { return null; }
 }
 

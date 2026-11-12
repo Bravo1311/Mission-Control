@@ -47,6 +47,12 @@ export function pos(msg) {
   if (typeof msg?.x_ecef_m === 'number' && typeof msg?.y_ecef_m === 'number' && typeof msg?.z_ecef_m === 'number') {
     return ecefToEnu(msg.x_ecef_m, msg.y_ecef_m, msg.z_ecef_m, REF.lat, REF.lon, REF.alt);
   }
+  // Native GNSS fixes use the same local ENU origin as ECEF fixes. They can
+  // contribute position error, but never invent orientation or velocity.
+  if (Number.isFinite(msg?.latitude) && Number.isFinite(msg?.longitude) && Number.isFinite(msg?.altitude)
+    && Math.abs(msg.latitude) <= 90 && Math.abs(msg.longitude) <= 180 && !(msg.status?.status < 0)) {
+    return ecefToEnu(...geodeticToEcef(msg.latitude, msg.longitude, msg.altitude), REF.lat, REF.lon, REF.alt);
+  }
   return null;
 }
 
