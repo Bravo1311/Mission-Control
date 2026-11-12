@@ -597,12 +597,19 @@ try {
   await until(`document.documentElement.dataset.night==='off'`);
   assert.equal(await evaluate(`[...document.querySelectorAll('.flight-source-row')].every(row=>row.querySelector('.vehicle-tag')?.dataset.vehicle===row.dataset.topic.split('/')[1])`), true, 'Every overlay source needs a matching drone badge');
   const groupStyles = await evaluate(`[...document.querySelectorAll('.trajectory-legend-group')].map(group=>({name:group.getAttribute('aria-label'),color:getComputedStyle(group.querySelector('strong')).color,tracks:[...group.querySelectorAll('.trajectory-legend-item')].map(item=>({topic:item.dataset.topic,source:item.dataset.source,pattern:item.dataset.pattern,color:getComputedStyle(item.querySelector('svg')).color}))}))`);
-  assert.notEqual(groupStyles[0].color, groupStyles[1].color, 'Vehicles must have different color families');
+  assert.notEqual(groupStyles[0].color, groupStyles[1].color, 'Vehicle heading colors must remain distinct');
   for (const group of groupStyles) {
     for (const [source, pattern] of [['imu', 'dotted'], ['gps', 'dashed'], ['fusion', 'solid']]) {
       assert.equal(group.tracks.find(track => track.source === source).pattern, pattern);
     }
-    assert.equal(new Set(group.tracks.map(track => track.color)).size, group.tracks.length, 'Sources within a vehicle must have distinct shades');
+    assert.equal(new Set(group.tracks.map(track => track.color)).size, group.tracks.length, 'Sources within a vehicle must have distinct colors');
+    for (const [index, track] of group.tracks.entries()) {
+      const rgb = track.color.match(/[\d.]+/g).slice(0, 3).map(Number);
+      for (const other of group.tracks.slice(index + 1)) {
+        const otherRgb = other.color.match(/[\d.]+/g).slice(0, 3).map(Number);
+        assert.ok(Math.hypot(...rgb.map((value, channel) => value - otherRgb[channel])) >= 65, `${track.topic} and ${other.topic} must be visually separated, not just different hex codes`);
+      }
+    }
   }
   await delay(1200);
   await evaluate(`document.querySelector('.trajectory-panel').scrollIntoView({block:'start'});[...document.querySelectorAll('.trajectory-panel button')].find(button=>button.textContent==='Fit tracks').click()`);

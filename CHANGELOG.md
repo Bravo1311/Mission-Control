@@ -1,5 +1,10 @@
 # Change history
 
+## 2026-11-12 — Distinct topic colors within each drone
+
+- Replaced the nearly identical source shades with separated hues while retaining drone badge colors and source line patterns. Additional source routes and aliases also receive name-specific colors.
+- Kept the exact topic color consistent across trajectories, maps, flight instruments, error traces, selectors and readouts, including Night lighting. Added checks for color separation, dark-surface contrast and stable identities without adding rendering effects or dependencies.
+
 ## 2026-11-12 — Per-drone estimation error panels
 
 - Replaced the global two-source comparison with one master panel for each drone that has at least two selected position sources. Each panel has an independent ground-truth selector and compares all remaining selected sources together, with position/orientation/velocity tabs and per-source statistics.
